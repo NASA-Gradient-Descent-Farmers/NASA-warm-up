@@ -1,5 +1,5 @@
 # NASA Space Apps & Agronomic Intelligence Warm-up 🛰️🌾
-
+Suck it bro
 **Note:** I used the Colab extension in VSCode to run, download and interact with the data, so the datasets will not be found in this repository since they are referenced using the ```earthaccess``` library from **NASA**. Note that you need to register in order to pull the data into your workspace.
 
 > **Central Source of Truth (SoT)** for our team's data science warm-up applications, Earth observation pipelines, agronomic models, and literature exploration.
