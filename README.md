@@ -100,6 +100,7 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 
 * **Purpose**: Ingestion of tabular, analysis-ready historical climate sequences (solar radiation, temperatures, precipitation).
 * **Capabilities**: Feeds the stochastic environmental transitions into our RL models to ensure resilience against extreme climate events.
+* **Ingestion script**: `src/data_ingestion/power.py` pulls daily point data (AG community) from the POWER API, tests the connection and previews records: `python src/data_ingestion/power.py --lat 42.03 --lon -93.47 --start 20240101 --end 20240131`.
 
 ### ⚖️ Economic Proxy Metrics & MOO (`src/moo_reward.py`)
 
