@@ -2,9 +2,9 @@
 
 Docs: https://power.larc.nasa.gov/docs/tutorials/service-data-request/api/
 
-Usage:
-    python src/data_ingestion/power.py                      # test connection + preview 5 records
-    python src/data_ingestion/power.py --lat 19.43 --lon -99.13 --start 20240101 --end 20240131
+Usage (from the repo root):
+    python -m src.data_ingestion.power                      # test connection + preview 5 records
+    python -m src.data_ingestion.power --lat 19.43 --lon -99.13 --start 20240101 --end 20240131 --time-standard UTC
 """
 
 import argparse
@@ -37,10 +37,12 @@ DEFAULT_LON = -93.47
 TIMEOUT = 30
 
 
-def fetch_daily_point(lat, lon, start, end, parameters=DEFAULT_PARAMETERS, community=COMMUNITY):
+def fetch_daily_point(lat, lon, start, end, parameters=DEFAULT_PARAMETERS, community=COMMUNITY,
+                      time_standard="LST"):
     """Request daily point data and return the raw JSON response.
 
-    `start` / `end` are YYYYMMDD strings.
+    `start` / `end` are YYYYMMDD strings. `time_standard` is "LST" (local solar time,
+    the API default) or "UTC" (matches SMAP timestamps). Max 20 parameters per request.
     """
     params = {
         "parameters": ",".join(parameters),
@@ -50,6 +52,7 @@ def fetch_daily_point(lat, lon, start, end, parameters=DEFAULT_PARAMETERS, commu
         "start": start,
         "end": end,
         "format": "JSON",
+        "time-standard": time_standard,
     }
     response = requests.get(BASE_URL, params=params, timeout=TIMEOUT)
     response.raise_for_status()
@@ -88,6 +91,7 @@ def main():
     parser.add_argument("--lon", type=float, default=DEFAULT_LON)
     parser.add_argument("--start", default="20240101", help="YYYYMMDD")
     parser.add_argument("--end", default="20240131", help="YYYYMMDD")
+    parser.add_argument("--time-standard", choices=["LST", "UTC"], default="LST")
     parser.add_argument("--rows", type=int, default=5, help="Number of records to preview")
     parser.add_argument("--out", help="Optional CSV path to save the full result (e.g. data/power.csv)")
     args = parser.parse_args()
@@ -95,11 +99,12 @@ def main():
     if not test_connection(args.lat, args.lon):
         raise SystemExit(1)
 
-    payload = fetch_daily_point(args.lat, args.lon, args.start, args.end)
+    payload = fetch_daily_point(args.lat, args.lon, args.start, args.end, time_standard=args.time_standard)
     df = to_dataframe(payload)
 
     units = {name: meta["units"] for name, meta in payload["parameters"].items()}
-    print(f"\nLocation: lat={args.lat}, lon={args.lon} | {args.start} -> {args.end} | {len(df)} records")
+    print(f"\nLocation: lat={args.lat}, lon={args.lon} | {args.start} -> {args.end} "
+          f"({payload['header']['time_standard']}) | {len(df)} records")
     print("Units: " + ", ".join(f"{k} [{v}]" for k, v in units.items()))
     print(f"\nFirst {args.rows} records:")
     with pd.option_context("display.width", 200, "display.max_columns", None):
