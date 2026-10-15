@@ -17,3 +17,6 @@ data/
 *.synctex.gz
 *.fdb_latexmk
 *.fls
+
+# Personal tool settings (not shared)
+.claude/settings.local.json
