@@ -1,0 +1,467 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{lmodern}
+\else
+  \usepackage{fontspec}  % XeTeX/LuaTeX (e.g. tectonic): Unicode fonts, so °, á, í render directly
+\fi
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[round,authoryear]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\assumption}[1]{\textcolor{orange!70!black}{[assumption]}~#1}
+
+\title{Crop Rotations under Drought in the Valley of Mexico\\[0.3em]
+\large Satellite data, a crop model with water and nitrogen, and the Mexican rainfed context}
+\author{Gradient Descent Farmers --- NASA Space Apps warm-up\\
+\small Working draft, branch \code{isaac/exploratory}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\IfFileExists{tables/smap.tex}{\input{tables/smap.tex}}{}
+
+\begin{abstract}
+We want to compare crop sequences (rotations) for rainfed farms in central Mexico, where the rainy season is short,
+variable and interrupted by a mid-summer dry spell (the \emph{canícula}). We built a pipeline that pulls free NASA
+data (POWER weather, SMAP soil moisture, GLDAS and IGBP-DIS soil properties) for any point, and drives the WOFOST~8.1
+crop model with it, adding nitrogen, frost, rain-onset sowing, fertilizer practice from a Texcoco field trial, and
+season-to-season carryover of soil water and nitrogen. At CIMMYT's El Batán station (Texcoco) over 2005--2025, the
+simulated fertilized maize yields (\(\approx\)6--7~t/ha dry matter) are in the range of field trials at Texcoco
+(4.8--6.5~t/ha). Nitrogen, not water, is the largest yield gap in most years; rotating maize with faba bean raises maize
+yields mostly in dry years; and frost and late sowing shorten the season more than expected. This document records the
+data, equations, assumptions and results so the work can be reproduced and challenged.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{Goal and approach}
+%======================================================================
+
+\paragraph{Decision problem.} Which crop to grow each rainy season, and in which order over the years, on a rainfed
+(\emph{temporal}) farm in the Mexican highlands. The answer depends on the weather of each year, which nobody knows
+when sowing, so we evaluate rotations over many real past years and under drier scenarios.
+
+\paragraph{Approach.}
+\begin{enumerate}[nosep]
+  \item \textbf{Data} (Section~\ref{sec:data}): for a point (latitude, longitude), pull daily weather, soil moisture and
+        static soil properties from NASA sources, and check that they are read correctly and behave physically.
+  \item \textbf{Crop model} (Section~\ref{sec:model}): simulate each crop day by day with WOFOST~8.1 through the Python
+        package PCSE, at three production levels: potential, water-limited and water- and nitrogen-limited.
+  \item \textbf{Mexican context} (Section~\ref{sec:mexico}): sowing when the rains start, local fertilizer practice,
+        legume nitrogen fixation, frost, drought indicators and drier-climate scenarios.
+  \item \textbf{Rotations} (Section~\ref{sec:experiments}): chain seasons so water and nitrogen left by one crop affect
+        the next, and compare rotations over 2005--2025.
+\end{enumerate}
+
+%======================================================================
+\section{Study site}\label{sec:site}
+%======================================================================
+
+The default site is CIMMYT's El Batán research station in Texcoco, Estado de México (19.53\,°N, 98.85\,°W,
+\(\approx\)2{,}250~m), in the farmland northeast of Mexico City, where long-term rainfed maize trials are run. The
+climate has a rainy season from May to October and a dry, cool season from November to April with occasional frost.
+In NASA POWER data, May--October rain averaged 774~mm over 2005--2025 (minimum 478~mm in 2023, maximum 1{,}005~mm in
+2025), and June rain averaged 145~mm (12~mm in 2023). The soil at the site is a loam (GLDAS), with field capacity
+0.373~m\(^3\)/m\(^3\), wilting point 0.137~m\(^3\)/m\(^3\) (IGBP-DIS) and porosity 0.437 (GLDAS), i.e.\ 236~mm of
+plant-available water in the top metre.
+
+%======================================================================
+\section{Data}\label{sec:data}
+%======================================================================
+
+\begin{table}[htbp]
+\centering\footnotesize
+\caption{Data sources. All are free; SMAP and IGBP-DIS need a NASA Earthdata login.}
+\label{tab:sources}
+\begin{tabularx}{\linewidth}{L{2.6cm}YL{1.8cm}L{1.3cm}L{2.5cm}}
+\toprule
+Source & What it provides & Resolution & Format & Script \\
+\midrule
+NASA POWER \citep{nasapower} & Daily weather: min/max temperature, rain (bias-corrected), solar radiation, humidity, wind & 0.5°\(\times\)0.625° & JSON (API) & \code{power.py} \\
+SMAP L4 SPL4SMGP v8 \citep{spl4smgp} & 3-hourly soil moisture (0--5~cm, 0--100~cm, profile), temperature, fluxes; 45 variables & 9~km EASE-Grid~2.0 & HDF5 & \code{smap.py} \\
+GLDAS soils \citep{rodell2004gldas} & Texture class, sand/silt/clay, porosity & 0.25° & netCDF4 & \code{gldas_soils.py} \\
+IGBP-DIS \citep{igbpdis2000} & Field capacity, wilting point, available water, bulk density, soil C and N (0--100~cm) & 1/12° (\(\approx\)9~km) & ASCII grid & \code{igbp_soils.py} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Reading SMAP efficiently}
+Each SMAP granule is a \(\approx\)140~MB HDF5 file covering the globe for one 3-hour window. Every variable is stored as
+one gzip-compressed chunk of 1624\(\times\)3856 cells (\(\approx\)4.3~MB compressed), so even reading one pixel downloads
+the whole chunk. Instead, \code{smap.py} asks NASA's OPeNDAP server for only the pixel
+(\code{/Geophysical_Data/<var>[row][col]}), 16 requests in parallel, falling back to streaming the HDF5 if OPeNDAP
+fails. This cut one week of data from \(\approx\)25~min to \(\approx\)30~s. The pixel is the cell whose centre is
+nearest to the point; because EASE-Grid~2.0 is cylindrical, latitude is constant along rows and longitude along
+columns, so the row and column are found from two 1-D arrays:
+\begin{equation}
+  i^* = \arg\min_i \lvert \varphi_i - \varphi \rvert, \qquad j^* = \arg\min_j \lvert \lambda_j - \lambda \rvert .
+\end{equation}
+
+\subsection{Validation of the data pipeline}
+At Celaya, Guanajuato, for all of 2024 (2{,}928 three-hourly steps) we checked:
+\begin{itemize}[nosep]
+  \item OPeNDAP values equal direct HDF5 reads to 6 significant digits;
+  \item the 1-D pixel lookup equals a full 2-D nearest search at 5 test sites (cell centres 2.8--4.8~km away);
+  \item no missing or duplicate time steps; soil moisture within physical bounds;
+  \item SMAP's precipitation input and POWER rain agree on the annual total (728 vs 727~mm), correlate daily
+        (\(r = 0.69\)) and agree on rain/no-rain days 94\% of the time; surface soil moisture rises 0.019~m\(^3\)/m\(^3\)
+        on days with \(>5\)~mm of POWER rain and falls on dry days;
+  \item monthly SMAP land-surface temperature and POWER air temperature correlate at \(r = 0.99\).
+\end{itemize}
+SMAP L4 meets its accuracy requirement of 0.04~m\(^3\)/m\(^3\) unbiased RMSE against in-situ sensors
+\citep{reichle2017smap}. Root-zone percentiles (\code{sm_rootzone_pctl}) are missing in NASA's files for about a third
+of 2024 at Celaya, in dry-season blocks. SMAP data from 14 May to 28 July 2026 are being reprocessed after a
+geolocation error \citep{nsidc2026notice}.
+
+%======================================================================
+\section{Crop model}\label{sec:model}
+%======================================================================
+
+We use WOFOST~8.1 \citep{dewit2019wofost,supit1994wofost} through PCSE~6.0.13 \citep{pcse}, with crop parameters from
+the WOFOST crop parameter repository \citep{wofostcropparams}. WOFOST simulates one crop on one field, one day at a
+time. Three model configurations give the three production levels used for yield-gap analysis:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Level & PCSE model & Limiting factors \\
+\midrule
+Potential \(Y_p\) & \code{Wofost81_PP} & temperature, radiation, CO\(_2\) \\
+Water-limited \(Y_w\) & \code{Wofost81_WLP_CWB} & + soil water (classic water balance) \\
+Water- and N-limited \(Y_{wn}\) & \code{Wofost81_NWLP_CWB_CNB} & + nitrogen (classic N balance) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Below, \(t\) is the day, \(T\) the mean daily temperature, and names in \code{TYPEWRITER} are WOFOST parameters.
+A parameter ending in \code{TB} is a table \(\{(x_k, y_k)\}\) evaluated by linear interpolation.
+
+\subsection{Weather: reference evapotranspiration}
+PCSE computes the FAO-56 Penman--Monteith reference evapotranspiration \citep{allen1998fao56} from POWER data:
+\begin{equation}
+  ET_0 = \frac{\Delta\,R_n + \gamma\,\dfrac{900}{T+273}\,u_2\,(e_s - e_a)}{\Delta + \gamma\,(1 + 0.34\,u_2)},
+\end{equation}
+with \(R_n\) the net radiation (as mm of water), \(\Delta\) the slope of the saturation vapour pressure curve,
+\(\gamma\) the psychrometric constant (which depends on air pressure, hence elevation), \(u_2\) wind at 2~m, and
+\(e_s - e_a\) the vapour pressure deficit.
+
+\subsection{Phenology}
+The development stage \(D\) runs from 0 (emergence) through 1 (flowering) to 2 (maturity) and depends on temperature only:
+\begin{equation}
+  \frac{dD}{dt} =
+  \begin{cases}
+    \code{DTSMTB}(T)/\code{TSUM1}, & D < 1,\\
+    \code{DTSMTB}(T)/\code{TSUM2}, & 1 \le D < 2.
+  \end{cases}
+\end{equation}
+For the maize variety used, \code{DTSMTB} rises linearly from 0 at 6\,°C to 24 at 30\,°C, \code{TSUM1}=695 and
+\code{TSUM2}=860\,°C\,d.
+
+\subsection{Photosynthesis}
+Leaf photosynthesis saturates with absorbed light \(I\):
+\begin{equation}
+  A(I) = A_{\max}\left(1 - e^{-\varepsilon I / A_{\max}}\right),
+\end{equation}
+with \(\varepsilon = \code{EFF}\). In WOFOST~8.1 the maximum rate depends on leaf nitrogen. The specific leaf N at
+cumulative leaf area \(L\) from the top of the canopy is
+\begin{equation}
+  \mathrm{SLN}(L) = N_{LV}\,\frac{k_N\, e^{-k_N L}}{1 - e^{-k_N\,\mathrm{LAI}}},
+  \qquad
+  A_{\max}(L) = f_{CO_2}\, f_T\,\min\!\big(A_{\mathrm{ref}},\ \max(0,\ s\,(\mathrm{SLN}(L) - N_b))\big),
+\end{equation}
+with \(N_{LV}\) the leaf N (kg/ha), \(k_N=\code{KN}\), \(A_{\mathrm{ref}}=\code{AMAX_REF}\), \(s=\code{AMAX_SLP}\),
+\(N_b=\code{AMAX_LNB}\). Light extinction through the canopy follows \(e^{-k L}\) for diffuse and direct light,
+with sunlit and shaded leaves treated separately \citep{spitters1986daily}. Canopy photosynthesis is integrated with
+3-point Gaussian quadrature over canopy depth and over the day:
+\begin{equation}
+  G = \mathrm{DAYL} \sum_{i=1}^{3} w_i\, \mathrm{LAI}\sum_{j=1}^{3} w_j\, A_{ij},
+  \qquad x = (0.113,\ 0.5,\ 0.887),\ w = (0.278,\ 0.444,\ 0.278),
+\end{equation}
+where \(A_{ij}\) is the leaf rate at time point \(i\) and depth \(L = x_j\,\mathrm{LAI}\). The daily potential
+assimilation in sugar is \(P = G\cdot\code{TMNFTB}(\bar T_{\min,7d})\cdot 30/44\), the last factor converting CO\(_2\) to CH\(_2\)O.
+
+\subsection{Water stress and the soil water balance}
+Maximum transpiration and the water-stress factor are
+\begin{gather}
+  T_{\max} = ET_0\left(1 - e^{-0.75\,k\,\mathrm{LAI}}\right),\\
+  p = \frac{1}{0.76 + 1.5\,ET_0} - (5 - \code{DEPNR})\cdot 0.1,\qquad
+  \theta_{cr} = (1-p)(\theta_{fc} - \theta_{wp}) + \theta_{wp},\\
+  f_w = \operatorname{clip}\!\left(\frac{\theta - \theta_{wp}}{\theta_{cr} - \theta_{wp}},\ 0,\ 1\right),
+\end{gather}
+with \(\theta\) the root-zone moisture, \(\theta_{fc}\) field capacity and \(\theta_{wp}\) wilting point. Actual
+transpiration is \(T_a = f_w T_{\max}\) and actual assimilation \(P\cdot f_w\). The classic water balance is a bucket
+over the rooted depth \(R\) (growing \(\code{RRI}\)~cm/day up to 100~cm) plus a lower zone:
+\begin{equation}
+  \frac{dW}{dt} = \text{infiltration} - T_a - E_s - \text{percolation},\qquad \theta = W/R,
+\end{equation}
+where water above field capacity percolates to the lower zone and roots gain the lower zone's water as they deepen.
+With no crop, \(R\) is the top 10~cm.
+
+\subsection{Respiration, growth and partitioning}
+\begin{gather}
+  M = \big(r_R W_R + r_L W_L + r_S W_S + r_O W_O\big)\,\code{RFSETB}(D)\, Q_{10}^{(T - 25)/10},\\
+  \Delta W_{\mathrm{tot}} = C\,(P f_w - M),\qquad
+  C = \left[\left(\tfrac{F_L}{c_L} + \tfrac{F_S}{c_S} + \tfrac{F_O}{c_O}\right)(1 - F_R) + \tfrac{F_R}{c_R}\right]^{-1},
+\end{gather}
+with organ weights \(W\), maintenance coefficients \(r\), conversion efficiencies \(c\), and partitioning fractions
+\(F_R, F_L, F_S, F_O\) from tables of \(D\). The grain grows by \(\Delta W_O = F_O (1 - F_R)\,\Delta W_{\mathrm{tot}}\),
+and the yield is \(Y = \sum_t \Delta W_O\) (grain dry matter, \code{TWSO}).
+
+\subsection{Nitrogen (WOFOST 8.1, classic N balance)}
+Each organ demands N to reach its maximum concentration \(n^{\max}\):
+\begin{equation}
+  D_N = \sum_{\text{organs}} \Big[\max\big(n^{\max} W - N,\ 0\big) + n^{\max}\,\Delta W\Big].
+\end{equation}
+Legumes fix a fraction of the demand, and the rest is taken from the soil's mineral N pool \(N_{av}\), but only if
+the crop is not severely water-stressed:
+\begin{equation}
+  F_N = \code{NFIX_FR}\cdot D_N,\qquad
+  U_N = \begin{cases} \min\!\big(D_N - F_N,\ N_{av},\ \code{RNUPTAKEMAX}\big), & f_w > 0.01,\\ 0, & \text{otherwise.}\end{cases}
+\end{equation}
+Faba bean has \code{NFIX_FR}=0.8; maize and barley 0. The soil pool changes as
+\begin{equation}
+  \frac{dN_{av}}{dt} = \eta\,N_{\mathrm{fert}} + \text{mineralization} - U_N,
+\end{equation}
+with fertilizer recovery \(\eta\). Low leaf N lowers \(A_{\max}\), slows leaf expansion and speeds leaf death.
+
+%======================================================================
+\section{Mexican context added to the model}\label{sec:mexico}
+%======================================================================
+
+\subsection{Rainfed sowing}
+Crops are sown when the rains start: on the first day from the crop's earliest sowing date \(t_0\) with at least
+20~mm of rain over the previous five days, or after 45 days anyway:
+\begin{equation}
+  t_{\mathrm{sow}} = \min\Big\{t \ge t_0 : \sum_{k=0}^{4} P(t-k) \ge 20~\mathrm{mm}\Big\},\quad t_{\mathrm{sow}} \le t_0 + 45.
+\end{equation}
+A fixed-date alternative (\(t_{\mathrm{sow}} = t_0\)) is available.
+
+\subsection{Crops and fertilizer}
+\begin{table}[htbp]
+\centering\footnotesize
+\caption{Crops and management. Fertilizer recovery \(\eta = 0.5\) for all applications.}
+\label{tab:crops}
+\begin{tabularx}{\linewidth}{lL{2.9cm}L{1.3cm}L{1.6cm}L{1.1cm}Y}
+\toprule
+Crop & WOFOST variety & Earliest sowing & N (kg/ha) & Min.\ grain N & Basis \\
+\midrule
+Maize & \code{Grain_maize_202} & May 15 & 80 + 80 (day 0, 40) & 1.0\% & 160~kg N/ha: highest dose tested on rainfed hybrids at Texcoco \citep{alonso2023terra}; split \assumption{} \\
+Barley & \code{Spring_barley_301} & July 1 & 60 (day 0) & 1.2\% & \assumption{no highland source found} \\
+Faba bean & \code{Faba_bean_801} & June 15 & 40 (day 0) & 3.5\% & \assumption{} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+WOFOST's spring-sown wheat is not available (its wheat parameters are winter wheats that need vernalization), and
+common bean (\emph{frijol}), oats and intercropping (\emph{milpa}) are not modeled.
+
+\subsection{Grain-N constraint}
+WOFOST~8.1 does not bound the N concentration of the grain: in a test without fertilizer, maize made 14.5~t/ha of
+grain holding 0.26\% N, which real maize does not do (typically 1.0--1.5\%). We therefore cap the N-limited yield by
+the N actually allocated to the grain:
+\begin{equation}
+  Y_{wn} = \min\!\left(Y_{wn}^{\mathrm{WOFOST}},\ \frac{N_{\mathrm{grain}}}{n_{\min}}\right),
+\end{equation}
+with \(n_{\min}\) from Table~\ref{tab:crops}. Both values are kept in the outputs.
+
+\subsection{Soil nitrogen supply}
+Mineralization of soil organic N is taken from IGBP-DIS total N in 0--100~cm (12{,}709~kg N/ha at Texcoco):
+\begin{equation}
+  M_N = \mu\,N_{\mathrm{total}},\qquad \mu = 0.005~\text{yr}^{-1} \Rightarrow M_N \approx 64~\text{kg N/ha per season},
+\end{equation}
+\assumption{\(\mu\)}, released evenly over the first 150 days of each season (March--July).
+
+\subsection{Chaining seasons: water and nitrogen carryover}
+Each season (March~1 to end of February) is simulated separately, and its end state starts the next one:
+\begin{align}
+  \mathrm{WAV}_{s+1} &= W^{\mathrm{profile}}_{\mathrm{end},s} - R_{\max}\,\theta_{wp}, &
+  \theta^{\mathrm{top}}_{s+1} &= \operatorname{clip}(\theta^{\mathrm{top}}_{\mathrm{end},s},\ \theta_{wp},\ \theta_{sat}),\\
+  N_{av,s+1} &= \big(N_{av,\mathrm{end},s} + \rho\,N_{\mathrm{res},s}\big)(1 - \lambda), &
+  N_{\mathrm{res}} &= N_{RT} + (W_{RT}^{\mathrm{dead}})\,n^{\mathrm{res}}_{RT} + (W_{LV}^{\mathrm{dead}})\,n^{\mathrm{res}}_{LV},
+\end{align}
+where the total profile water is conserved exactly across the boundary (checked numerically), \(N_{\mathrm{res}}\) is
+the N in roots and dead leaves (stems and green leaves, the \emph{rastrojo}, are assumed removed for fodder, as is
+common in Mexico), \(\rho = 0.5\) the share of residue N released the next season \assumption{}, and
+\(\lambda = 0.5\) the share of carried mineral N lost before the next crop \assumption{}. Fertilizer recovery
+\(\eta = 0.5\) follows the 30--50\% first-season recovery typical of cereals \citep{cassman2002nue}. The CO\(_2\)
+concentration is \(380 + 2.2\,(y - 2005)\)~ppm.
+
+\subsection{Frost}
+The crop ends on the first night, from 30 days after sowing, with
+\begin{equation}
+  T_{\min}(t) + \delta \le 0\,^{\circ}\mathrm{C},
+\end{equation}
+where \(\delta\) (default 0) lets us represent valley floors colder than the 0.5° POWER grid (\(\delta = -2\)~°C in
+one scenario). POWER shows on average 5.4 frost days per year at Texcoco (1990--2025), with first autumn frosts
+between mid-October and late December and none at all in 2021--2024.
+
+\subsection{Drought indicators and scenarios}
+For each season we record: rain from sowing to harvest; July--August rain (\emph{canícula}); the longest run of days
+with \(<1\)~mm of rain; water-stress days (\(f_w < 0.5\)); soil water on March~1. Years are classed as dry, normal or
+wet by terciles of May--October rain over 2005--2025. Drier climates are explored by multiplying daily rain by a
+factor, either all year or only in July--August.
+
+%======================================================================
+\section{Experiments}\label{sec:experiments}
+%======================================================================
+
+Four rotations, one crop per rainy season: maize every year; maize--barley; maize--faba bean;
+maize--barley--faba bean. Every phase of each rotation is simulated, so each crop occurs every year
+(8 sequences \(\times\) 21 seasons, 2005--2025, at three production levels). The first season is a spin-up and is
+excluded. Scenarios: baseline; 20\% and 40\% less rain; 50\% less rain in July--August; frost check 2\,°C colder; no
+fertilizer; fixed sowing on each crop's earliest date.
+
+%======================================================================
+\section{Results}\label{sec:results}
+%======================================================================
+
+\subsection{Baseline: where the yield goes}
+\input{tables/baseline.tex}
+
+Table~\ref{tab:baseline} summarizes the baseline. Fertilized rainfed maize yields 6.3--6.9~t/ha of grain dry matter
+(\(\approx\)7.3--8.0~t/ha at 14\% moisture), the same order as the 4.8--6.5~t/ha measured for rainfed hybrids at
+Texcoco \citep{alonso2023terra}. Water-limited maize would yield \(\approx\)11~t/ha and potential maize 11.7~t/ha, so
+\textbf{nitrogen, not water, is the largest yield gap} (40--45\%); the water gap (0--8\%) is concentrated in a few
+years. The grain-N constraint is active in 69\% of maize seasons (on average $-2.7$~t/ha relative to raw WOFOST) and
+in 95\% of barley seasons, and never for faba bean, whose fixation keeps its seed N high. Frost ended 12 of the 20
+maize seasons before maturity: with rain-onset sowing in late May or June, the long-cycle maize is still filling
+grain when the first frosts arrive (late October to December). Barley and faba bean tonnages are not credible
+(Section~\ref{sec:limitations}).
+
+\subsection{Rotations}
+\input{tables/previous_crop.tex}
+
+Maize after faba bean yields 6.9~t/ha against 6.3~t/ha in monoculture (+0.6~t/ha, +10\%, Table~\ref{tab:prev}).
+Paired by year, maize after faba bean is better by more than 0.5~t/ha in 11 of 20 years and worse in 4. The gain
+comes from nitrogen: maize after faba bean starts the season with more mineral N (11.0 vs 7.5~kg/ha on average),
+because faba bean draws 80\% of its N from the air and leaves N-rich roots and dead leaves. In three of the four worse
+years (2006, 2013, 2017), maize after faba bean started with wetter soil, grew a larger canopy and spread its N over
+more leaves and stems, leaving less N for the grain; this response runs through the grain-N constraint and should be
+treated as uncertain. In 2024, maize after maize benefited from 74~kg/ha of fertilizer N left unused after the
+2023 failure.
+
+The largest single difference is 2023, the driest season in the record (Table~\ref{tab:years}): maize after maize
+failed (0.0~t/ha) while maize after faba bean yielded 12.7~t/ha. In 2022 the rains came late, maize was sown on
+15~June and only matured on 5~January, drying the profile; on 1~March 2023 it held 146~mm against a wilting point
+of 137~mm. Maize sown on 15~May then met a nearly rainless June (12~mm) and spent 117 days under water stress.
+
+\subsection{Drought: amount versus timing}
+\input{tables/year_class.tex}
+\input{tables/years.tex}
+
+Total season rain is a weak predictor of maize yield here (Table~\ref{tab:yearclass}). Monoculture maize did only
+slightly worse in dry years (5.2~t/ha) than in normal years (5.5~t/ha), and rotations did \emph{better} in dry years
+than in normal ones. Two reasons appear in Table~\ref{tab:years}: frost ended 71\% of normal and wet seasons but only
+33\% of dry ones, and what hurts is \emph{when} rain fails rather than how much falls. 2023 (478~mm of May--October rain, a
+28-day dry spell, 12~mm in June) failed after maize; 2022 (565~mm) did not. Rotations protected maize in dry years (7.1--7.8 vs
+5.2~t/ha), when the soil water and nitrogen left by the previous crop matter most.
+
+\subsection{Scenarios}
+\input{tables/scenarios.tex}
+
+\begin{itemize}[nosep]
+  \item \textbf{20\% less rain}: maize monoculture loses 1.0~t/ha; rotations lose 0.3--0.5~t/ha. Rotations buffer
+        moderate drying.
+  \item \textbf{40\% less rain}: 8--10 of 20 maize seasons fail in every rotation; rotation cannot compensate.
+  \item \textbf{Stronger canícula} (half the July--August rain): $-$0.3 to $-$0.5~t/ha. At this site the soil
+        stores 236~mm of usable water and buffers a weaker mid-summer, unlike shallow soils further north.
+  \item \textbf{Colder nights} (frost check $-2$\,°C): frost ends 85\% of maize seasons; $-$0.4 to $-$0.6~t/ha.
+  \item \textbf{No fertilizer}: maize falls to 1.9--2.4~t/ha, faba bean is unaffected. The Texcoco trial found only
+        a small response (5.2~t/ha without fertilizer vs 5.6 with 160~kg N/ha; \citealp{alonso2023terra}), so the
+        model's soil N supply (\(\mu\)) is probably too low for that site. Calibrating it is the first priority.
+  \item \textbf{Fixed sowing on May 15}: maize rises to 8.3--9.0~t/ha. Earlier sowing lengthens the season and
+        escapes some frost. WOFOST does not represent failed emergence in a dry seedbed, so this gain is optimistic.
+\end{itemize}
+
+\subsection{Soil moisture against SMAP}
+\IfFileExists{tables/smap.tex}{%
+The simulated 0--100~cm soil moisture (\smapRotation, 2023--2024) correlates with SMAP root-zone moisture at
+\(r = \smapR\) over \smapDays\ days.}{}
+The day-to-day dynamics agree, but levels differ: in the 2023 rainy season the model's profile (0.13--0.19) was drier
+than SMAP's (0.27--0.32), as expected for a field whose previous crop dried it, compared with a 9~km cell with its own
+soil description.
+
+%======================================================================
+\section{Verification}\label{sec:verification}
+%======================================================================
+
+The core daily equations shared by WOFOST~7.2 and~8.1 (phenology, light interception and Gaussian integration,
+water stress, maintenance respiration, conversion and partitioning, Penman--Monteith \(ET_0\)) were recomputed by
+hand for one simulated day (7 August 2023, maize after barley at Texcoco, WOFOST~7.2) and matched PCSE to all
+printed decimals: \(ET_0 = 5.108\)~mm, \(dD/dt = 0.013442\), \(G = 943.79\)~kg CO\(_2\)/ha, \(f_w = 0.916\),
+\(T_a = 3.821\)~mm, \(M = 138.82\)~kg CH\(_2\)O/ha, \(\Delta W_O = 302.36\)~kg/ha. The season's grain yield equals the
+sum of daily grain growth (17{,}700~kg/ha). The nitrogen-specific equations of WOFOST~8.1 have not yet been verified
+by hand.
+
+%======================================================================
+\section{Limitations}\label{sec:limitations}
+%======================================================================
+
+\begin{itemize}[nosep]
+  \item \textbf{Crop parameters are European.} Absolute yields of barley and especially faba bean are not credible
+        (simulated faba bean seed \(\approx\)10~t/ha vs.\ 1--2~t/ha typical in Mexico); compare maize across rotations,
+        not the partner crops' tonnages. Maize yields are in the range of a Texcoco trial \citep{alonso2023terra} but
+        the model is not calibrated.
+  \item \textbf{Several nitrogen parameters are assumptions} (\(\mu, \rho, \lambda, \eta, n_{\min}\), barley and faba
+        bean doses); results on rotation benefits depend on them.
+  \item \textbf{No pests, diseases, weeds, phosphorus, hail or lodging}; no tillage or residue-cover effects on
+        evaporation.
+  \item \textbf{Weather is coarse.} The POWER cell's elevation is 2{,}633~m vs.\ \(\approx\)2{,}250~m at the site;
+        valley-floor frosts are under-represented.
+  \item \textbf{Frost ends the crop on a single threshold}; WOFOST has no partial frost damage for these crops.
+  \item \textbf{Soil hydraulic conductivity and percolation} use PCSE defaults, not site data.
+  \item \textbf{One site.} Results do not transfer to other soils or climates without rerunning.
+  \item The rain-scaling scenarios change only rain amounts, not temperature or radiation.
+\end{itemize}
+
+%======================================================================
+\section{Next steps}\label{sec:next}
+%======================================================================
+
+\begin{enumerate}[nosep]
+  \item Calibrate maize (and partner crops) against observed yields: INIFAP/CIMMYT trials at Texcoco, SIAP municipal
+        statistics.
+  \item Replace or bias-correct POWER temperatures with station data (SMN, Chapingo) for frost.
+  \item Use SMAP root-zone moisture to initialize or correct soil water at sowing.
+  \item Add supplemental irrigation as a drought adaptation option.
+  \item Add prices and costs to score rotations, then frame rotation choice as a sequential decision problem
+        for reinforcement learning (CropGym; \citealp{kallenberg2023cropgym}; cf.\ CyclesGym, \citealp{turchetta2022cyclesgym}).
+\end{enumerate}
+
+%======================================================================
+\section{Reproducibility}\label{sec:repro}
+%======================================================================
+
+Code: \code{src/data_ingestion/} and \code{src/crop_models/wofost_rotations.py}. Python 3.13, PCSE 6.0.13.
+From the repository root:
+\begin{verbatim}
+python -m src.data_ingestion.smap --lat 19.53 --lon -98.85 --start 2023-01-01 \
+    --end 2024-12-31 --variables sm_rootzone sm_surface sm_rootzone_wetness \
+    --out data/smap_texcoco_2023_2024.csv
+M=src.crop_models.wofost_rotations; L=data/rotations
+python -m $M --smap data/smap_texcoco_2023_2024.csv --out $L/baseline.csv
+python -m $M --rain-factor 0.8 --out $L/rain80.csv
+python -m $M --rain-factor 0.6 --out $L/rain60.csv
+python -m $M --rain-factor 0.5 --rain-months 7 8 --out $L/canicula50.csv
+python -m $M --frost-tmin-offset -2 --out $L/frost_minus2.csv
+python -m $M --n-scale 0 --out $L/no_fertilizer.csv
+python -m $M --sowing fixed --out $L/fixed_sowing.csv
+python docs/technical_report/make_tables.py
+\end{verbatim}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

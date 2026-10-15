@@ -9,6 +9,9 @@ h5py>=3.10
 numpy>=1.26
 pandas>=2.1
 
+# Crop simulation (WOFOST)
+pcse>=6.0
+
 # Visualization
 matplotlib>=3.8
 
