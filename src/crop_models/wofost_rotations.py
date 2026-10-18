@@ -45,6 +45,7 @@ import argparse
 import copy
 import time
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 from pcse.base import ParameterProvider
@@ -331,6 +332,13 @@ def simulate_rotations(lat, lon, start_year, end_year, rotations=ROTATIONS, sowi
     seasons["year_class"] = seasons["year"].map(classes).astype(str)
     seasons["rain_may_oct_mm"] = seasons["year"].map(may_oct_rain)
     seasons["rain_factor"] = rain_factor
+    # Keep forcing and management explicit for offline surrogate and risk experiments.
+    seasons["rain_months"] = ",".join(map(str, sorted(rain_months))) if rain_months else "all"
+    seasons["frost_tmin_offset"] = frost_tmin_offset
+    seasons["n_scale"] = n_scale
+    seasons["sowing_mode"] = sowing
+    seasons["latitude"] = lat
+    seasons["longitude"] = lon
     soil["total_n_kg_ha"] = total_n
     return seasons, daily, soil, weather
 
@@ -426,6 +434,7 @@ def main():
         print(both.resample("MS").mean().round(3).to_string())
 
     if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         seasons.to_csv(args.out, index=False)
         print(f"\nSaved {len(seasons)} seasons to {args.out}")
 

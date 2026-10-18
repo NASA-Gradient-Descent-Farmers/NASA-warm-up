@@ -105,6 +105,78 @@ Maize, water- and N-limited, t/ha of grain dry matter (failed seasons, <1 t/ha, 
 
 The report regenerates these tables from the CSVs: `python docs/technical_report/make_tables.py`.
 
+## Exploratory trees, XGBoost and rotation risk
+
+> **Note:** This exploratory XGBoost/tree-surrogate work is not part of the technical documentation in [`docs/technical_report/`](../../docs/technical_report/); the report covers only the WOFOST simulator.
+
+Three additional modules build on the seasonal WOFOST results:
+
+| Module | Experiment |
+|---|---|
+| `rotation_experiments.py` | Run ten named weather/management scenarios, including half fertilizer combined with moderate drought or canícula |
+| `tree_surrogate.py` | Compare a mean-yield baseline, a shallow decision tree, random forest and XGBoost as fast emulators of simulated yield |
+| `rotation_risk.py` | Compare rotations with paired-year bootstrap intervals and Monte Carlo samples of multiple crop harvests |
+
+Start with the existing scenario CSVs, **without NASA access or PCSE imports**:
+
+```bash
+pip install -r requirements.txt
+python -m src.crop_models.tree_surrogate --input data/rotations/*.csv --out-dir data/exploration/planning
+python -m src.crop_models.tree_surrogate --input data/rotations/*.csv --feature-set hindcast --out-dir data/exploration/hindcast
+python -m src.crop_models.rotation_risk --input data/rotations/*.csv --out-dir data/exploration/risk
+```
+
+Generate additional WOFOST simulations, then include them in the analysis:
+
+```bash
+python -m src.crop_models.rotation_experiments --scenarios half_fertilizer rain80_half_fertilizer canicula50_half_fertilizer --out-dir data/exploration/scenarios
+python -m src.crop_models.tree_surrogate --input data/rotations/*.csv data/exploration/scenarios/*.csv --out-dir data/exploration/combined
+python -m src.crop_models.rotation_risk --input data/rotations/*.csv data/exploration/scenarios/*.csv --out-dir data/exploration/combined_risk
+```
+
+Alternatively, omit `--scenarios` to regenerate all ten scenarios in a separate directory. This uses the original WOFOST model and its NASA/cache requirements. New runs carry sowing mode, fertilizer scale, rain multiplier and months, frost offset and coordinates in every CSV. A `scenarios.json` manifest records completed runs. Existing CSVs lacking those fields must keep their original registered filenames (`baseline.csv`, `rain80.csv`, etc.); arbitrary filenames need explicit metadata. Use one site per experiment and avoid loading the same run twice.
+
+### Tree experiment design
+
+The default crop is **maize**. Use `--crop barley` or `--crop fababean` for separate experiments, keeping the partner-crop calibration limitations below in mind. Each run removes its first simulated year as spin-up (`--spinup-years 0` disables this).
+
+- **Planning features**: rotation, previous crop, initial water and mineral N, fertilizer plan, sowing policy, and the assumed rain/frost scenario. Scenario forcing is an experimental assumption; a future rain multiplier is not a measured forecast. Realized rain-onset sowing dates are excluded.
+- **Hindcast features**: also include realized May–October rain, crop-season July–August rain, longest crop-season dry spell and sowing day of year. Some weather windows depend on harvest timing. This mode explains completed simulations and cannot be used for a pre-season recommendation.
+- **Excluded from both**: target yield, other production-level yields, grain N, N uptake, water-stress days, harvest/maturity dates, frost-ended outcome, year classes and scenario/phase/year IDs.
+- **Validation**: the latest four calendar years are the holdout. Three expanding-window folds over earlier years select the model by pooled validation RMSE. Every scenario, rotation and phase from a given year stays together. Encoders and preprocessing fit within each fold. This follows the temporal-validation principle described in the [scikit-learn documentation](https://scikit-learn.org/stable/modules/cross_validation.html#time-series-split).
+- **Models**: fixed, conservative settings with a reproducible seed; XGBoost uses its [scikit-learn regressor API](https://xgboost.readthedocs.io/en/stable/python/python_api.html#xgboost.XGBRegressor). There is no tuning on holdout years. `--without-xgboost` runs the other models independently.
+
+Outputs include `metrics.csv`, predictions and scores by scenario/rotation, auditable `fold_membership.csv`, readable `decision_tree.txt`, encoded feature importances, `diagnostics.png`, and the CV-selected `surrogate.joblib`. `run.json` records features, development/holdout years, input hashes, seed and package versions. Saved models are fitted on development years only. To replay a saved model:
+
+```python
+import joblib
+import numpy as np
+from src.crop_models.tree_surrogate import build_features
+
+# candidate_seasons contains valid WOFOST-style rows with consistent initial state.
+features, _ = build_features(candidate_seasons, feature_set="planning")
+model = joblib.load("data/exploration/planning/surrogate.joblib")
+predicted_yield = np.maximum(0, model.predict(features))  # same clipping as evaluation
+```
+
+These models emulate **WOFOST assumptions**, including its uncalibrated soil N and crop parameters. Feature importances describe fitted splits, not causal rotation effects. Initial soil states are generated by the simulator; do not change a rotation label while keeping incompatible water/N carryover. Use WOFOST for new interventions. Current evaluation tests unseen years at the same site and known scenarios; it does not establish performance at new sites or unseen management regimes.
+
+### Bootstrap and Monte Carlo interpretation
+
+`rotation_risk.py` compares maize harvests against continuous maize by default (`--crop`, `--reference`). It averages repeated crop phases within each rotation/year, then keeps only years shared by all compared rotations. `rotation_effects.csv` reports the mean paired advantage and its 95% bootstrap interval; `excluded_years` exposes incomplete comparisons. Differences within 0.000001 t/ha count as numerical ties.
+
+`harvest_risk.csv` samples 5,000 sets of ten crop harvests by default (`--draws`, `--harvests`, `--seed`). Every rotation receives the same sampled weather years within a scenario. It reports the distribution of mean harvest yield, the fraction of harvests below 1 t/ha (`--failure-threshold`), and the probability of at least one failed harvest. `run.json` records the configuration and input hashes.
+
+The samples assume independent historical years with equal probability. They do not include serial drought persistence, future climate trends, parameter uncertainty, or fresh soil-state transitions. Ten maize harvests span different numbers of calendar years in different rotations. These are **conditional maize-harvest comparisons**, not whole-farm yield, profit, or ten-year rotation returns. The original WOFOST runs provide the crop sequence and carryover dynamics.
+
+Run the offline regression checks with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Measured exploratory results and their interpretation are in [EXPLORATION.md](EXPLORATION.md).
+
 ## Limitations
 
 - **Crop parameters are European.** Barley and especially faba bean tonnages are not credible (faba bean seed ~10 t/ha simulated vs 1-2 t/ha typical in Mexico). Compare maize across rotations, not partner-crop tonnages.

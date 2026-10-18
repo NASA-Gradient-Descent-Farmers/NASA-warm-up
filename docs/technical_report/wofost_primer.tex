@@ -1,0 +1,251 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{lmodern}
+\else
+  \usepackage{fontspec}
+\fi
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\clip}{\operatorname{clip}}
+
+\title{What Kind of Model Is WOFOST?\\[0.3em]\large The math behind the crop simulator, step by step}
+\author{Gradient Descent Farmers --- companion to the technical report}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{1. Short answer}
+
+WOFOST is \textbf{not a regression}. It is a \textbf{process-based (mechanistic), dynamic, deterministic simulation
+model}: a system of ordinary differential equations that describes how a plant grows from physical and physiological
+processes (photosynthesis, respiration, water uptake), solved forward in time one day at a time. It never sees observed
+yields; the yield is what comes out at the end.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{lYY}
+\toprule
+ & \textbf{Regression / machine learning} & \textbf{WOFOST (process-based)} \\
+\midrule
+Form & \(y = \beta_0 + \beta_1 P + \beta_2 T + \varepsilon\) & \(\dfrac{d\mathbf{x}}{dt} = f(\mathbf{x}, \mathbf{u}, \boldsymbol\theta)\), 20+ coupled equations \\
+Numbers come from & Fitted to past yields (\(\hat\beta = \arg\min \sum (y - \hat y)^2\)) & Measured plant physiology (leaf photosynthesis, respiration costs\ldots) \\
+Uses observed yields? & Yes, many & No (only optionally, to calibrate) \\
+Explains \emph{why}? & No, only correlations & Yes: every intermediate quantity can be inspected \\
+New conditions (e.g.\ 40\% less rain) & Unreliable outside the data & The same physics still applies \\
+Main weakness & Needs lots of yield data & Many parameters; needs calibration to be accurate locally \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section*{2. The model as a dynamical system}
+
+\paragraph{State.} At day \(t\) the field is described by a state vector
+\begin{equation}
+  \mathbf{x}(t) = \big(\underbrace{D}_{\text{stage}},\
+  \underbrace{W_{LV},\, W_{ST},\, W_{RT},\, W_{SO}}_{\text{leaves, stems, roots, grain (kg/ha)}},\
+  \underbrace{\mathrm{LAI}}_{\text{leaf area}},\
+  \underbrace{W,\, W_{low}}_{\text{soil water (cm)}},\
+  \underbrace{N_{av},\, N_{LV}, \ldots}_{\text{nitrogen (kg/ha)}}\big).
+\end{equation}
+
+\paragraph{Dynamics.} Each state changes at a rate that depends on the current state, today's weather
+\(\mathbf{u}(t)\) (temperature, radiation, rain, humidity, wind) and fixed crop and soil parameters \(\boldsymbol\theta\):
+\begin{equation}
+  \frac{d\mathbf{x}}{dt} = f\big(\mathbf{x}(t),\, \mathbf{u}(t),\, \boldsymbol\theta\big).
+\end{equation}
+
+\paragraph{Solution.} The equations are solved numerically with the forward Euler method and a time step of one day:
+\begin{equation}
+  \boxed{\ \mathbf{x}_{t+1} = \mathbf{x}_t + f(\mathbf{x}_t,\, \mathbf{u}_t,\, \boldsymbol\theta)\cdot \Delta t,
+  \qquad \Delta t = 1\ \text{day}\ }
+\end{equation}
+Each day: compute all rates from today's state and weather, then add them to get tomorrow's state.
+
+\paragraph{Yield.} The yield is the grain pool on the last day, i.e.\ the sum of daily grain growth:
+\begin{equation}
+  Y = W_{SO}(t_{\mathrm{end}}) = \sum_{t = t_{\mathrm{sow}}}^{t_{\mathrm{end}}} \Delta W_{SO}(t).
+\end{equation}
+Written as one function, the whole season is \(Y = \Phi(\mathbf{x}_0,\, \mathbf{u}_{1:T},\, \boldsymbol\theta)\): a
+deterministic composition of \(T\) daily updates. The same weather path always gives the same yield; all variation
+between years comes from the weather.
+
+\section*{3. One simulated day, equation by equation}
+
+Symbols: \(T\) mean temperature (°C), \(I\) absorbed light, LAI leaf area index (m\(^2\) leaf per m\(^2\) ground),
+\(\theta\) soil moisture (m\(^3\)/m\(^3\)). Functions written \(g(\cdot)\) are piecewise-linear lookup tables of
+measured values.
+
+\subsection*{Step 1 --- Development (the crop's clock)}
+\begin{equation}
+  \frac{dD}{dt} = \frac{g(T)}{\mathrm{TSUM}_k},\qquad
+  g(T) = \begin{cases} 0, & T \le 6\,^{\circ}\mathrm{C}\\ T - 6, & 6 < T < 30\\ 24, & T \ge 30 \end{cases}
+  \quad(\text{maize}),
+\end{equation}
+with \(\mathrm{TSUM}_1 = 695\) °C\,d before flowering (\(D<1\)) and \(\mathrm{TSUM}_2 = 860\) °C\,d after
+(\(1 \le D < 2\)). \(D = 2\) is maturity. Water and nitrogen stress do not slow this clock.
+
+\subsection*{Step 2 --- Light through the canopy (Beer's law)}
+\begin{equation}
+  I(L) = I_0\, e^{-k L},
+\end{equation}
+where \(L\) is the leaf area above a given leaf and \(k \approx 0.6\). Upper leaves get more light than lower ones.
+
+\subsection*{Step 3 --- Photosynthesis of one leaf (saturating curve)}
+\begin{equation}
+  A(I) = A_{\max}\left(1 - e^{-\varepsilon I / A_{\max}}\right),
+\end{equation}
+linear in dim light (slope \(\varepsilon\)), levelling off at \(A_{\max}\) in bright light. In WOFOST~8.1,
+\(A_{\max}\) depends on the nitrogen in the leaf:
+\begin{equation}
+  A_{\max} = f_{CO_2}\, f_T(T_{day})\,\min\!\big(A_{\mathrm{ref}},\ s\cdot \mathrm{SLN}\big),
+\end{equation}
+with SLN the leaf nitrogen per unit leaf area. Less nitrogen means a lower ceiling.
+
+\subsection*{Step 4 --- Whole canopy, whole day (numerical integration)}
+The daily total integrates \(A\) over canopy depth and over the hours of daylight. WOFOST approximates both integrals
+with 3-point \textbf{Gaussian quadrature}:
+\begin{gather}
+  \int_0^1 h(x)\,dx \;\approx\; \sum_{i=1}^{3} w_i\, h(x_i),\\
+  x = \Big(\tfrac12 - \tfrac{\sqrt{15}}{10},\ \tfrac12,\ \tfrac12 + \tfrac{\sqrt{15}}{10}\Big)
+  \approx (0.113,\ 0.5,\ 0.887),\qquad
+  w = \Big(\tfrac{5}{18},\ \tfrac{8}{18},\ \tfrac{5}{18}\Big),
+\end{gather}
+which is exact for polynomials up to degree 5. Applied twice (3 times of day \(\times\) 3 depths):
+\begin{equation}
+  G = \mathrm{DAYL}\sum_{i=1}^{3} w_i\ \mathrm{LAI}\sum_{j=1}^{3} w_j\, A\big(I_{ij}\big)
+  \quad[\text{kg CO}_2/\text{ha/day}].
+\end{equation}
+\textbf{These are the only ``weights'' in WOFOST}: numerical integration weights, not regression coefficients.
+
+Converted to sugar, with a penalty for cold nights:
+\begin{equation}
+  P = G \cdot g_{\min}\big(\bar T_{\min,\,7d}\big)\cdot \frac{30}{44}
+  \quad[\text{kg CH}_2\text{O/ha/day}],
+\end{equation}
+where \(30/44\) is the ratio of the molar masses of CH\(_2\)O and CO\(_2\), and \(g_{\min}\) is 0 at
+\(\le 5\) °C and 1 at \(\ge 8\) °C.
+
+\subsection*{Step 5 --- Water stress}
+\begin{align}
+  T_{\max} &= ET_0\left(1 - e^{-0.75\,k\,\mathrm{LAI}}\right) && \text{maximum transpiration}\\
+  \theta_{cr} &= (1-p)\,(\theta_{fc} - \theta_{wp}) + \theta_{wp} && \text{moisture where stress starts}\\
+  f_w &= \clip\!\left(\frac{\theta - \theta_{wp}}{\theta_{cr} - \theta_{wp}},\ 0,\ 1\right) && \text{1 = no stress, 0 = no water}\\
+  P_a &= f_w \cdot P,\qquad T_a = f_w \cdot T_{\max} && \text{actual photosynthesis and transpiration}
+\end{align}
+\(\theta_{fc}\) is field capacity, \(\theta_{wp}\) wilting point, and \(p\) depends on the drought sensitivity of the
+crop and on \(ET_0\). \(ET_0\) itself comes from the Penman--Monteith equation (sunlight, air dryness, wind).
+
+\subsection*{Step 6 --- Respiration (running costs)}
+\begin{equation}
+  M = \big(r_R W_{RT} + r_L W_{LV} + r_S W_{ST} + r_O W_{SO}\big)\cdot Q_{10}^{(T-25)/10},\qquad Q_{10} = 2,
+\end{equation}
+i.e.\ each kg of tissue costs a little sugar per day, doubling with every 10 °C.
+
+\subsection*{Step 7 --- Growth and partitioning}
+\begin{gather}
+  \Delta W = C\,(P_a - M),\qquad C \approx 0.67\ \text{kg dry matter per kg sugar},\\
+  \Delta W_{RT} = F_R\,\Delta W,\qquad
+  \Delta W_{LV} = F_L(1-F_R)\,\Delta W,\\
+  \Delta W_{ST} = F_S(1-F_R)\,\Delta W,\qquad
+  \Delta W_{SO} = F_O(1-F_R)\,\Delta W,
+\end{gather}
+where the fractions \(F_R, F_L, F_S, F_O\) depend on the stage \(D\): roots and leaves early, almost everything to the
+grain after flowering (\(F_O = 1\) from \(D = 1.2\) in maize). New leaf area is
+\(\Delta\mathrm{LAI} = \mathrm{SLA}(D)\,\Delta W_{LV}\) minus leaves dying of age, shading, drought or lack of N.
+
+\subsection*{Step 8 --- Soil water (mass balance)}
+\begin{equation}
+  W_{t+1} = W_t + \underbrace{R_{in}}_{\text{rain infiltrating}} - \underbrace{T_a}_{\text{crop}}
+  - \underbrace{E_s}_{\text{soil evaporation}} - \underbrace{Q}_{\text{drainage}},
+  \qquad \theta = W / R_{\mathrm{root}}.
+\end{equation}
+
+\subsection*{Step 9 --- Nitrogen (WOFOST 8.1)}
+\begin{align}
+  D_N &= \sum_{\text{organs}}\Big[\max\big(n^{\max} W - N,\,0\big) + n^{\max}\,\Delta W\Big] && \text{demand}\\
+  F_N &= \phi\,D_N && \text{fixed from the air}\\
+  U_N &= \begin{cases}\min\big(D_N - F_N,\ N_{av},\ U_{\max}\big), & f_w > 0.01\\ 0, & \text{otherwise}\end{cases} && \text{taken from the soil}\\
+  N_{av,\,t+1} &= N_{av,\,t} + \eta\,N_{\mathrm{fert}} + \text{mineralization} - U_N && \text{soil pool}
+\end{align}
+Faba bean has \(\phi = 0.8\); maize and barley \(\phi = 0\). A dry crop takes up no nitrogen, which links drought and
+nitrogen stress.
+
+\subsection*{All steps in one line}
+Substituting steps 3--7 into the grain equation shows how one day of grain growth is built:
+\begin{equation}
+  \Delta W_{SO}
+  = \underbrace{F_O(1-F_R)}_{\text{share to grain}}\cdot
+    \underbrace{C}_{\text{sugar}\to\text{tissue}}\cdot
+    \Big[\underbrace{f_w}_{\text{water}}\cdot
+    \underbrace{\mathrm{DAYL}\sum_i w_i\,\mathrm{LAI}\sum_j w_j\,A(I_{ij})\cdot g_{\min}\cdot\tfrac{30}{44}}_{\text{photosynthesis}}
+    \;-\; \underbrace{M}_{\text{respiration}}\Big].
+\end{equation}
+
+\section*{4. One real day, by hand}
+
+Maize after barley at Texcoco, 7 August 2023 (WOFOST~7.2 core equations, which WOFOST~8.1 shares except for the
+leaf-nitrogen term). Every value below was recomputed independently and matched the model to all printed decimals.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{lYr}
+\toprule
+Quantity & Calculation & Value \\
+\midrule
+\(ET_0\) & Penman--Monteith: \(3.996\) (radiation) \(+\ 1.112\) (dry air, wind) & 5.108 mm \\
+\(dD/dt\) & \(g(17.56) / 860 = 11.56 / 860\) & 0.013442 \\
+\(G\) & \(12.78\ \text{h} \times (0.278\cdot 109.8 + 0.444\cdot 84.3 + 0.278\cdot 21.1)\) & 943.79 kg CO\(_2\)/ha \\
+\(P\) & \(943.79 \times 1 \times 30/44\) & 643.49 kg CH\(_2\)O/ha \\
+\(f_w\) & \((0.2225 - 0.137) / (0.2303 - 0.137)\) & 0.916 \\
+\(P_a\) & \(643.49 \times 0.916\) & 589.43 kg CH\(_2\)O/ha \\
+\(M\) & \(232.50 \times 2^{(17.56-25)/10}\) & 138.82 kg CH\(_2\)O/ha \\
+\(\Delta W\) & \(0.671 \times (589.43 - 138.82)\) & 302.36 kg/ha \\
+\(\Delta W_{SO}\) & \(F_O = 1,\ F_R = 0\) at \(D = 1.20\) & \textbf{302.36 kg grain/ha} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+Summing \(\Delta W_{SO}\) over the 93 days of grain filling gives that season's yield: 17{,}700 kg/ha.
+
+\section*{5. Where fitting \emph{does} appear}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Behind the parameters.} Some relationships (e.g.\ how photosynthesis falls with temperature) were derived
+        from experiments decades ago, partly by curve fitting. In a simulation they are fixed constants.
+  \item \textbf{Calibration} (not yet done). Adjust a few parameters \(\boldsymbol\theta_c\) so simulated yields match
+        observed ones:
+        \begin{equation}
+          \hat{\boldsymbol\theta}_c = \arg\min_{\boldsymbol\theta_c}\ \sum_{k}
+          \Big(Y^{\mathrm{obs}}_k - \Phi\big(\mathbf{x}_0,\, \mathbf{u}_k,\, \boldsymbol\theta_c\big)\Big)^2 .
+        \end{equation}
+        This is a least-squares problem, but over a simulator \(\Phi\), not a linear formula.
+  \item \textbf{Statistics on the outputs}: means, coefficients of variation, correlation with SMAP. They describe the
+        results; they are not part of the model.
+\end{enumerate}
+
+\section*{6. How it connects to machine learning}
+
+WOFOST is the \emph{environment}; learning sits on top. In reinforcement learning (CyclesGym, CropGym), each season is a
+step of a Markov decision process:
+\begin{gather}
+  s_t = \text{soil water, soil N, weather so far},\qquad
+  a_t = \text{crop, sowing date, fertilizer},\\
+  s_{t+1} \sim \text{WOFOST}(s_t, a_t, \mathbf{u}_t),\qquad
+  r_t = \text{price}\cdot Y_t - \text{cost}(a_t),\qquad
+  \pi^* = \arg\max_\pi\ \mathbb{E}\Big[\sum_t \gamma^t r_t\Big].
+\end{gather}
+The crop model supplies physically realistic consequences; the learning algorithm finds the decisions.
+
+\end{document}

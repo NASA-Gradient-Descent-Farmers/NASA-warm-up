@@ -110,6 +110,7 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 
 * Simulates seasonal crop rotations (e.g. maize, maize-barley, maize-faba bean) for rainfed farms in central Mexico with the WOFOST 8.1 crop model (PCSE): water, nitrogen, frost, rain-onset sowing, drought indicators and drier-climate scenarios, driven by POWER weather and GLDAS/IGBP soils, and checked against SMAP. See [`src/crop_models/README.md`](src/crop_models/README.md).
 * Technical report (LaTeX) with data, equations, assumptions and results: [`docs/technical_report/`](docs/technical_report/).
+* Exploratory decision-tree, random-forest and XGBoost yield surrogates, additional drought/fertilizer scenarios, and paired bootstrap/Monte Carlo rotation-risk comparisons: [`src/crop_models/README.md`](src/crop_models/README.md#exploratory-trees-xgboost-and-rotation-risk).
 
 ### ⚖️ Economic Proxy Metrics & MOO (`src/moo_reward.py`)
 
