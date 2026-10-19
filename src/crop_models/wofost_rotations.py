@@ -182,17 +182,17 @@ def sowing_date(weather, year, earliest, rule="onset"):
     return start + timedelta(days=ONSET_WINDOW_DAYS)
 
 
-def frost_date(weather, sow, season_end, tmin_offset=0.0):
-    """First day from FROST_FROM_DAYS after sowing with TMIN + offset <= FROST_TMIN, or None."""
+def frost_date(weather, sow, season_end, tmin_offset=0.0, threshold=FROST_TMIN):
+    """First day from FROST_FROM_DAYS after sowing with TMIN + offset <= threshold, or None."""
     day = sow + timedelta(days=FROST_FROM_DAYS)
     while day < season_end:
-        if weather(day).TMIN + tmin_offset <= FROST_TMIN:
+        if weather(day).TMIN + tmin_offset <= threshold:
             return day
         day += timedelta(days=1)
     return None
 
 
-def season_agromanagement(crop_key, sow, frost, year, n_scale=1.0):
+def season_agromanagement(crop_key, sow, frost, year, n_scale=1.0, n_recovery=N_RECOVERY):
     """PCSE agromanagement for one season (Mar 1 to end of Feb) with one crop and its fertilizer plan."""
     crop = CROPS[crop_key]
     season_end = date(year + 1, 3, 1)
@@ -203,7 +203,7 @@ def season_agromanagement(crop_key, sow, frost, year, n_scale=1.0):
         "crop_end_date": frost, "crop_end_type": "earliest" if frost else "maturity",
         "max_duration": (season_end - sow).days - 1,
     }
-    applications = [{sow + timedelta(days=d): {"N_amount": kg * n_scale, "N_recovery": N_RECOVERY}}
+    applications = [{sow + timedelta(days=d): {"N_amount": kg * n_scale, "N_recovery": n_recovery}}
                     for d, kg in crop["fertilizer"] if kg * n_scale > 0]
     events = [{"event_signal": "apply_n", "name": "fertilizer", "comment": "", "events_table": applications}]
     return [{date(year, 3, 1): {"CropCalendar": calendar, "TimedEvents": events if applications else None,
@@ -211,12 +211,19 @@ def season_agromanagement(crop_key, sow, frost, year, n_scale=1.0):
             {season_end: None}]
 
 
-def run_season(model, weather, crops, soil, agro, year, carry, mineralization):
-    """Simulate one season. Returns (summary row, daily DataFrame, state carried to the next season)."""
+def run_season(model, weather, crops, soil, agro, year, carry, mineralization, crop_overrides=None):
+    """Simulate one season. Returns (summary row, daily DataFrame, state carried to the next season).
+
+    crop_overrides: optional {WOFOST crop parameter: value} replacing the active variety's values.
+    """
     site = WOFOST81SiteDataProvider_Classic(
         WAV=carry["wav"], SMLIM=carry["smlim"], NAVAILI=min(carry["navail"], 250), CO2=co2_ppm(year),
         NSOILBASE=min(mineralization, 100), NSOILBASE_FR=1 / MINERALIZATION_DAYS)
-    engine = model(ParameterProvider(cropdata=crops, soildata=soil, sitedata=site), weather, agro)
+    params = ParameterProvider(cropdata=crops, soildata=soil, sitedata=site)
+    # PCSE re-activates the variety when the crop starts, so changes must be overrides, not edits to `crops`.
+    for name, value in (crop_overrides or {}).items():
+        params.set_override(name, value)
+    engine = model(params, weather, agro)
     engine.mconf.OUTPUT_VARS = list(engine.mconf.OUTPUT_VARS) + ["WWLOW"]
     engine.run_till_terminate()
 
@@ -226,7 +233,8 @@ def run_season(model, weather, crops, soil, agro, year, carry, mineralization):
 
     # State for the next season: water above wilting point in the profile, topsoil moisture, mineral N.
     wwlow = engine.get_variable("WWLOW")
-    wav = max(0.0, wwlow - ROOTING_DEPTH_CM * soil["SMW"]) if wwlow is not None else carry["wav"]
+    # The profile is RDMSOL deep (ROOTING_DEPTH_CM unless a calibration sets a shallower soil).
+    wav = max(0.0, wwlow - soil["RDMSOL"] * soil["SMW"]) if wwlow is not None else carry["wav"]
     smlim = min(soil["SM0"], max(soil["SMW"], daily["SM"].iloc[-1]))
     navail = engine.get_variable("NAVAIL") or 0.0
     crop_rows = daily.dropna(subset=["WRT"])
@@ -259,32 +267,40 @@ def drought_classes(weather, start_year, end_year):
     return pd.qcut(totals, 3, labels=["dry", "normal", "wet"]), totals
 
 
-def simulate_rotation(name, sequence, weather, crops, soil, total_n, start_year, end_year, settings):
-    """Simulate every phase of one rotation at all production levels, chaining seasons.
+def simulate_rotation(name, sequence, weather, crops, soil, total_n, start_year, end_year, settings,
+                      levels=LEVELS):
+    """Simulate every phase of one rotation at the given production levels, chaining seasons.
 
+    `settings` may carry calibration entries (see src/crop_models/calibration.py): "crop_params"
+    ({crop key: {WOFOST parameter: value}}), "n_recovery" ({crop key: share}), "mineralization_rate"
+    and "frost_tmin". Missing entries keep the module defaults. `levels` must include "water_n".
     Returns (seasons DataFrame, daily water- and N-limited output of phase 0).
     """
-    mineralization = MINERALIZATION_RATE * total_n
+    mineralization = settings.get("mineralization_rate", MINERALIZATION_RATE) * total_n
+    crop_params = settings.get("crop_params", {})
+    n_recovery = settings.get("n_recovery", {})
     records, daily_phase0 = [], []
     for phase in range(len(sequence)):
         order = sequence[phase:] + sequence[:phase]
-        carry = {level: {"wav": INITIAL_WATER_CM, "smlim": 0.4, "navail": INITIAL_N_KG} for level in LEVELS}
+        carry = {level: {"wav": INITIAL_WATER_CM, "smlim": 0.4, "navail": INITIAL_N_KG} for level in levels}
         for i, year in enumerate(range(start_year, end_year + 1)):
             crop_key = order[i % len(order)]
             crop = CROPS[crop_key]
             crops.set_active_crop(crop["crop"], crop["variety"])
             sow = sowing_date(weather, year, crop["earliest"], settings["sowing"])
-            frost = frost_date(weather, sow, date(year + 1, 3, 1), settings["frost_tmin_offset"])
-            agro = season_agromanagement(crop_key, sow, frost, year, settings["n_scale"])
+            frost = frost_date(weather, sow, date(year + 1, 3, 1), settings["frost_tmin_offset"],
+                               settings.get("frost_tmin", FROST_TMIN))
+            agro = season_agromanagement(crop_key, sow, frost, year, settings["n_scale"],
+                                         n_recovery.get(crop_key, N_RECOVERY))
 
             row = {"rotation": name, "phase": phase, "year": year, "crop": crop_key,
                    "previous_crop": order[(i - 1) % len(order)] if i > 0 else None, "sowing": sow,
                    "n_fertilizer_kg_ha": sum(kg for _, kg in crop["fertilizer"]) * settings["n_scale"],
-                   "soil_water_at_start_mm": 10 * (carry["water_n"]["wav"] + ROOTING_DEPTH_CM * soil["SMW"]),
+                   "soil_water_at_start_mm": 10 * (carry["water_n"]["wav"] + soil["RDMSOL"] * soil["SMW"]),
                    "mineral_n_at_start_kg_ha": carry["water_n"]["navail"]}
-            for level, model in LEVELS.items():
+            for level, model in levels.items():
                 summary, daily, carry[level] = run_season(model, weather, crops, soil, agro, year, carry[level],
-                                                          mineralization)
+                                                          mineralization, crop_params.get(crop_key))
                 row[f"yield_{level}_t_ha"] = (summary["TWSO"] or 0.0) / 1000
                 if level == "water_n":
                     end = summary["DOM"] or summary["DOH"] or date(year + 1, 2, 28)
@@ -304,7 +320,7 @@ def simulate_rotation(name, sequence, weather, crops, soil, total_n, start_year,
                         daily_phase0.append(daily)
             records.append(row)
     seasons = pd.DataFrame(records)
-    for level in ("water", "water_n"):
+    for level in ("water", "water_n") if set(LEVELS) <= set(levels) else ():
         # Rainfed can exceed potential by a few % from numerical differences between models; cap at 100.
         upper = seasons["yield_potential_t_ha"] if level == "water" else seasons["yield_water_t_ha"]
         seasons[f"{level}_pct_of_{'potential' if level == 'water' else 'water'}"] = (
@@ -313,20 +329,25 @@ def simulate_rotation(name, sequence, weather, crops, soil, total_n, start_year,
 
 
 def simulate_rotations(lat, lon, start_year, end_year, rotations=ROTATIONS, sowing="onset", rain_factor=1.0,
-                       rain_months=None, frost_tmin_offset=0.0, n_scale=1.0):
+                       rain_months=None, frost_tmin_offset=0.0, n_scale=1.0, calibration=None, levels=LEVELS):
     """Simulate each rotation at the site.
 
+    `calibration` is an optional dict of overrides (opt-in; see src/crop_models/calibration.py):
+    the simulate_rotation settings plus "rooting_depth_cm" (soil depth, at most ROOTING_DEPTH_CM).
     Returns (seasons DataFrame, {rotation: daily output of phase 0}, soil parameters, weather provider).
     """
     weather = scaled_weather(NASAPowerWeatherDataProvider(latitude=lat, longitude=lon), rain_factor, rain_months)
     crops = YAMLCropDataProvider(Wofost81_NWLP_CWB_CNB)
     soil, total_n = site_soil(lat, lon)
-    settings = {"sowing": sowing, "frost_tmin_offset": frost_tmin_offset, "n_scale": n_scale}
+    calibration = dict(calibration or {})
+    if "rooting_depth_cm" in calibration:
+        soil["RDMSOL"] = min(ROOTING_DEPTH_CM, calibration.pop("rooting_depth_cm"))
+    settings = {"sowing": sowing, "frost_tmin_offset": frost_tmin_offset, "n_scale": n_scale, **calibration}
     classes, may_oct_rain = drought_classes(weather, start_year, end_year)
     results, daily = [], {}
     for name, sequence in rotations.items():
         seasons, daily[name] = simulate_rotation(name, sequence, weather, crops, soil, total_n,
-                                                 start_year, end_year, settings)
+                                                 start_year, end_year, settings, levels)
         results.append(seasons)
     seasons = pd.concat(results, ignore_index=True)
     seasons["year_class"] = seasons["year"].map(classes).astype(str)
