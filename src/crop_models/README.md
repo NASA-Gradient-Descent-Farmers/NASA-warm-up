@@ -177,6 +177,25 @@ python -m unittest discover -s tests -v
 
 Measured exploratory results and their interpretation are in [EXPLORATION.md](EXPLORATION.md).
 
+## Combined ensembles and observed yields
+
+`ensemble_experiments.py` adds Extra Trees, equal averaging of random forest/XGBoost/Extra Trees, a nonnegative blend with weights summing to one, and ridge stacking. Blend weights and the stacker are trained on **inner expanding-year predictions**, inside each outer validation fold. Preprocessing is refitted inside every inner fold. Convex weights use a fixed 0.1 penalty toward equal weights; ridge uses standardized base predictions and fixed alpha 10. Hyperparameters are frozen before examining observed holdout labels. The implementation avoids ordinary stacking folds that can mix past and future years ([stacking API reference](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.StackingRegressor.html)).
+
+```bash
+python -m src.crop_models.ensemble_experiments --input data/rotations/*.csv data/exploration/scenarios/*.csv --out-dir data/exploration/ensembles_simulated
+python -m src.crop_models.observed_maize
+python -m src.crop_models.ensemble_experiments --observations data/observations/texcoco_maize.csv --features previous_yield_t_ha --out-dir data/exploration/ensembles_observed_planning
+python -m src.crop_models.ensemble_experiments --observations data/observations/texcoco_maize.csv --features previous_yield_t_ha rain_may_oct_mm --out-dir data/exploration/ensembles_observed_hindcast
+```
+
+`observed_maize.py` downloads the [official SIAP municipal annual files](https://nube.agricultura.gob.mx/datosAbiertos/Agricola.php), caches them, and extracts **Estado de México / Texcoco / Primavera-Verano / Temporal / Maíz grano**. It handles the historical crop-name header and parses numeric fields strictly. Annual yield is total production divided by harvested area, with no assumed grain-moisture conversion. Input hashes, filters and URLs are recorded in `data/observations/sources.json`. Raw national files stay in ignored `data/`.
+
+The observed experiment has one municipal observation per year, never copied across simulated rotations or scenarios. Planning uses only the previous year's measured yield; hindcast additionally uses unscaled May–October NASA POWER rain from the baseline weather export. Previous-year yields in later holdout years are available for **annual one-step predictions**, not a forecast of the entire four-year period made at its beginning. Production and harvested area are excluded as predictors because they define the target.
+
+Both targets use three outer expanding-year folds and reserve 2022–2025 for evaluation by default. For simulations, those years were already inspected in earlier experiments, so this is an exploratory reuse of that holdout. SIAP labels form a separate observed target. Outputs include metrics, row-level holdout predictions, a fitted CV-selected model, inner/outer year membership, blend weights and input hashes. `paired_uncertainty.csv` resamples whole holdout years jointly and reports the selected model's RMSE advantage over each alternative; positive values favor the selected model. Four holdout years give limited uncertainty estimates.
+
+SIAP municipal averages contain no field rotation history, fertilizer treatments, or paired intervention outcomes. They test municipal yield prediction; they **cannot validate the simulated causal benefit of crop rotation**. Errors on SIAP's reported grain basis cannot be directly equated to errors against WOFOST dry-matter yields. Results are recorded in [ENSEMBLE_RESULTS.md](ENSEMBLE_RESULTS.md).
+
 ## Limitations
 
 - **Crop parameters are European.** Barley and especially faba bean tonnages are not credible (faba bean seed ~10 t/ha simulated vs 1-2 t/ha typical in Mexico). Compare maize across rotations, not partner-crop tonnages.

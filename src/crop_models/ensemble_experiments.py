@@ -7,6 +7,7 @@ numeric predictors. Otherwise --input reads WOFOST simulations. Never mix target
 import argparse
 import hashlib
 import json
+from importlib.metadata import version
 from pathlib import Path
 
 import joblib
@@ -90,6 +91,63 @@ class LagBaseline(RegressorMixin, BaseEstimator):
 
     def predict(self, x):
         return x["previous_yield_t_ha"].to_numpy()
+
+
+def paired_uncertainty(predictions, selected, seed=42, draws=5000):
+    """Resample whole holdout years jointly; positive advantage favors selected."""
+    data = predictions.copy()
+    data["squared_error"] = (data.actual_t_ha - data.predicted_t_ha) ** 2
+    annual = data.pivot_table(index="year", columns="model", values="squared_error", aggfunc="mean")
+    rng = np.random.default_rng(seed)
+    indices = rng.integers(0, len(annual), size=(draws, len(annual)))
+    selected_errors = annual[selected].to_numpy()
+    rows = []
+    for name in annual.columns:
+        advantage = np.sqrt(annual[name].to_numpy()[indices].mean(axis=1)) - np.sqrt(
+            selected_errors[indices].mean(axis=1)
+        )
+        rows.append(
+            {
+                "selected": selected,
+                "comparison": name,
+                "holdout_years": len(annual),
+                "rmse_advantage_t_ha": np.sqrt(annual[name].mean()) - np.sqrt(annual[selected].mean()),
+                "ci_low_t_ha": np.quantile(advantage, 0.025),
+                "ci_high_t_ha": np.quantile(advantage, 0.975),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_observed(data, predictions, selected, directory):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    axes[0].plot(data.year, data.observed_yield_t_ha, "o-", color="black", label="SIAP observed")
+    axes[0].axvspan(
+        predictions.year.min() - 0.5,
+        predictions.year.max() + 0.5,
+        alpha=0.12,
+        color="orange",
+        label="Holdout",
+    )
+    axes[0].set(title="Texcoco rainfed maize", xlabel="Year", ylabel="Reported yield (t/ha)")
+    axes[0].legend(fontsize=8)
+    truth = predictions[predictions.model == selected].sort_values("year")
+    axes[1].plot(truth.year, truth.actual_t_ha, "ko-", label="SIAP observed")
+    for name in dict.fromkeys([selected, "ensemble_equal", "mean"]):
+        p = predictions[predictions.model == name].sort_values("year")
+        axes[1].plot(p.year, p.predicted_t_ha, "o--", label=name)
+    axes[1].set(
+        title="Annual holdout predictions", xlabel="Year", ylabel="Reported yield (t/ha)", xticks=truth.year
+    )
+    axes[1].legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(directory / "observed_predictions.png", dpi=160)
+    plt.close(fig)
 
 
 def candidates(numeric, observed=False, seed=42):
@@ -207,6 +265,7 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     metrics.to_csv(args.out_dir / "metrics.csv", index=False)
     predictions.to_csv(args.out_dir / "holdout_predictions.csv", index=False)
+    paired_uncertainty(predictions, selected).to_csv(args.out_dir / "paired_uncertainty.csv", index=False)
     # Store importable classes, including when invoked with python -m.
     from .ensemble_experiments import candidates as importable_candidates
 
@@ -220,6 +279,9 @@ def main():
         "selected_by_cv": selected,
         "features": numeric if args.observations else list(x.drop(columns="year").columns),
         "seed": 42,
+        "versions": {
+            name: version(name) for name in ("numpy", "pandas", "scikit-learn", "scipy", "xgboost", "joblib")
+        },
         "holdout_years": sorted(predictions.year.unique().tolist()),
         "inputs": [
             {"path": str(p.resolve()), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in paths
@@ -232,6 +294,8 @@ def main():
         "audit": audit,
     }
     (args.out_dir / "run.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    if args.observations:
+        plot_observed(data, predictions, selected, args.out_dir)
     print(metrics[metrics.split.isin(["cv_pooled", "holdout"])].round(3).to_string(index=False))
     print(f"CV selected: {selected}; target: {metadata['target_type']}")
 

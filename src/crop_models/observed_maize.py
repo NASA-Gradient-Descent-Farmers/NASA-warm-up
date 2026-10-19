@@ -20,6 +20,9 @@ URL = "https://nube.agricultura.gob.mx/index.php?view=10AE434F-A2158368-A120BC5A
 
 def extract_texcoco(frame, year):
     frame = frame.rename(columns=lambda c: c.strip().lower())
+    frame = frame.rename(columns={"nomcultivo sin um": "nomcultivo"})  # SIAP's 2015 export
+    if "nomcultivo" not in frame:
+        raise ValueError(f"Unexpected schema for {year}: {list(frame.columns)}")
     selected = frame[
         (frame.idestado == 15)
         & (frame.idmunicipio == 99)
@@ -29,11 +32,10 @@ def extract_texcoco(frame, year):
     ]
     if selected.empty or not (selected.anio == year).all():
         raise ValueError(f"Missing or mismatched Texcoco rainfed maize observations for {year}")
-    area, production, sown = (
-        selected.cosechada.sum(),
-        selected.volumenproduccion.sum(),
-        selected.sembrada.sum(),
-    )
+    quantities = selected[["cosechada", "volumenproduccion", "sembrada"]].apply(pd.to_numeric, errors="raise")
+    if not np.isfinite(quantities.to_numpy()).all():
+        raise ValueError(f"Missing or invalid area/production in {year}")
+    area, production, sown = quantities.sum().tolist()
     if not np.isfinite([area, production, sown]).all() or area <= 0 or production < 0 or sown < area:
         raise ValueError(f"Invalid area or production in {year}")
     return {
@@ -54,10 +56,10 @@ def fetch(year, directory):
         # Validate before caching; error pages must not become permanent inputs.
         from io import BytesIO
 
-        frame = pd.read_csv(BytesIO(response.content), encoding="cp1252")
+        frame = pd.read_csv(BytesIO(response.content), encoding="cp1252", low_memory=False)
         extract_texcoco(frame, year)
         path.write_bytes(response.content)
-    row = extract_texcoco(pd.read_csv(path, encoding="cp1252"), year)
+    row = extract_texcoco(pd.read_csv(path, encoding="cp1252", low_memory=False), year)
     print(f"Loaded observed year {year}", flush=True)
     return row, {
         "year": year,
