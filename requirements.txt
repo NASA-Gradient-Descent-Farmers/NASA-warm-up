@@ -9,6 +9,15 @@ h5py>=3.10
 numpy>=1.26
 pandas>=2.1
 
+# Crop simulation (WOFOST)
+pcse>=6.0
+
+# Exploratory yield surrogates (decision trees, random forest, XGBoost)
+scikit-learn>=1.4
+xgboost>=2.0
+joblib>=1.3
+scipy>=1.10
+
 # Visualization
 matplotlib>=3.8
 

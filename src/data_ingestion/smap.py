@@ -2,33 +2,39 @@
 
 Dataset: https://nsidc.org/data/spl4smgp/versions/8 (DOI 10.5067/T5RUATAQREF8)
 
-Granules are ~140 MB HDF5 files. Instead of downloading them, this script streams
-only the pixel it needs from each file via earthaccess.open() + h5py.
+Granules are ~140 MB HDF5 files, and each variable is stored as one compressed block for the
+whole globe, so even streaming a single pixel downloads ~4 MB per variable. Instead, this
+script asks NASA's OPeNDAP server for just the pixel and reads granules in parallel: a week of
+3-hourly data takes seconds. If OPeNDAP fails for a granule, it falls back to streaming that
+granule's HDF5 with earthaccess.open() + h5py (same values, much slower).
 
 Requires a NASA Earthdata login to read values. Without one, the connection test and
 granule search still run, and the preview shows granule metadata instead.
 
 Usage (from the repo root):
     python -m src.data_ingestion.smap
-    python -m src.data_ingestion.smap --lat 20.52 --lon -100.82 --start 2024-07-01 --end 2024-07-03 --out data/smap.csv
+    python -m src.data_ingestion.smap --lat 20.52 --lon -100.82 --start 2024-07-01 --end 2024-07-07 --out data/smap.csv
+    python -m src.data_ingestion.smap --variables sm_rootzone sm_rootzone_pctl precipitation_total_surface_flux
 """
 
 import argparse
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import earthaccess
 import h5py
 import numpy as np
 import pandas as pd
+import requests
 
 from src.data_ingestion.common import SAMPLE_SITES, earthdata_login, nearest_index
 
 SHORT_NAME = "SPL4SMGP"
 VERSION = "008"
 
-# Variables read from the Geophysical_Data group.
+# Default variables read from the Geophysical_Data group (all 45 are listed in the README).
 VARIABLES = [
     "sm_surface",    # Surface soil moisture, 0-5 cm (m3/m3)
     "sm_rootzone",   # Root-zone soil moisture, 0-100 cm (m3/m3)
@@ -37,6 +43,10 @@ VARIABLES = [
 ]
 
 FILL_VALUE = -9999.0
+
+WORKERS = 16  # parallel OPeNDAP requests
+RETRIES = 3   # OPeNDAP attempts per granule before the HDF5 fallback
+TIMEOUT = 60
 
 _, DEFAULT_LAT, DEFAULT_LON = SAMPLE_SITES[0]
 
@@ -104,35 +114,98 @@ def granule_table(granules):
     return pd.DataFrame(rows).set_index("datetime")
 
 
-def extract_point(granules, lat, lon, variables=VARIABLES):
-    """Stream each granule and read the 9 km pixel nearest to (lat, lon). Needs Earthdata login.
+def h5_url(granule):
+    """HTTPS link to the granule's HDF5 file (each granule also links a .qa and an .iso.xml file)."""
+    return next(url for url in granule.data_links() if url.endswith(".h5"))
 
-    Returns (DataFrame indexed by UTC datetime, units dict, (pixel_lat, pixel_lon)).
+
+def opendap_url(granule):
+    """The granule's OPeNDAP endpoint from CMR, or None if it has none."""
+    for link in granule["umm"].get("RelatedUrls", []):
+        if link.get("Subtype") == "OPENDAP DATA":
+            return link["URL"]
+    return None
+
+
+def locate_pixel(granule, lat, lon, variables=VARIABLES):
+    """Find the grid cell nearest to (lat, lon) and the variables' units by streaming one granule.
+
+    The grid is identical in every granule, so this runs once per request (~6 s).
+    Returns (row, col, (pixel_lat, pixel_lon), units dict). Raises ValueError for unknown variables.
     """
-    files = earthaccess.open(granules)
-    records, units = [], {}
-    row = col = pixel = None
+    with h5py.File(earthaccess.open([h5_url(granule)])[0], "r") as h5:
+        # EASE-Grid 2.0 is cylindrical: latitude is constant along rows and
+        # longitude along columns, so 1-D slices are enough to locate the pixel.
+        lats = h5["cell_lat"][:, 0]
+        lons = h5["cell_lon"][0, :]
+        row, col = nearest_index(lats, lat), nearest_index(lons, lon)
 
-    for granule, fobj in zip(granules, files):
-        with h5py.File(fobj, "r") as h5:
-            if row is None:
-                # EASE-Grid 2.0 is cylindrical: latitude is constant along rows and
-                # longitude along columns, so 1-D slices are enough to locate the pixel.
-                row = nearest_index(h5["cell_lat"][:, 0], lat)
-                col = nearest_index(h5["cell_lon"][0, :], lon)
-                pixel = (float(h5["cell_lat"][row, col]), float(h5["cell_lon"][row, col]))
+        group = h5["Geophysical_Data"]
+        unknown = [name for name in variables if name not in group]
+        if unknown:
+            raise ValueError(f"Unknown SMAP variable(s): {', '.join(unknown)}. Available: {', '.join(group)}")
+        units = {}
+        for name in variables:
+            unit = group[name].attrs.get("units", "")
+            units[name] = unit.decode() if isinstance(unit, bytes) else str(unit)
 
-            group = h5["Geophysical_Data"]
-            record = {"datetime": granule_info(granule)[0]}
-            for name in variables:
-                dataset = group[name]
-                value = float(dataset[row, col])
-                record[name] = np.nan if value == FILL_VALUE else value
-                unit = dataset.attrs.get("units", "")
-                units.setdefault(name, unit.decode() if isinstance(unit, bytes) else str(unit))
-            records.append(record)
+    return row, col, (float(lats[row]), float(lons[col])), units
 
-    return pd.DataFrame(records).set_index("datetime"), units, pixel
+
+def read_opendap(session, url, row, col, variables=VARIABLES):
+    """One granule's pixel from OPeNDAP (DAP2 ASCII). Returns {variable: value}.
+
+    Values come back rounded to 6 significant digits, far finer than the product's accuracy.
+    """
+    constraint = ",".join(f"/Geophysical_Data/{name}[{row}][{col}]" for name in variables)
+    response = session.get(f"{url}.ascii?{constraint}", timeout=TIMEOUT)
+    response.raise_for_status()
+
+    # A "Dataset: <file>" line, then one "/Geophysical_Data/<name>[0], <value>" line per variable.
+    values = {}
+    for line in response.text.splitlines()[1:]:
+        if "," in line:
+            name, value = line.split(",", 1)
+            values[name.split("[")[0].rsplit("/", 1)[-1]] = float(value)
+    missing = set(variables) - set(values)
+    if missing:
+        raise ValueError(f"OPeNDAP response is missing {sorted(missing)}")
+    return values
+
+
+def read_h5(granule, row, col, variables=VARIABLES):
+    """Fallback: stream the granule's HDF5 and read the pixel (downloads ~4 MB per variable)."""
+    with h5py.File(earthaccess.open([h5_url(granule)])[0], "r") as h5:
+        group = h5["Geophysical_Data"]
+        return {name: float(group[name][row, col]) for name in variables}
+
+
+def read_granule(session, granule, row, col, variables=VARIABLES):
+    """Read one granule's pixel: OPeNDAP with retries, then the HDF5 fallback."""
+    url = opendap_url(granule)
+    if url:
+        for attempt in range(RETRIES):
+            try:
+                return read_opendap(session, url, row, col, variables)
+            except (requests.RequestException, ValueError):
+                time.sleep(2 ** attempt)
+    return read_h5(granule, row, col, variables)
+
+
+def extract_point(granules, lat, lon, variables=VARIABLES, workers=WORKERS):
+    """Read the 9 km pixel nearest to (lat, lon) from every granule. Needs Earthdata login.
+
+    Returns (DataFrame indexed by UTC datetime, fill values as NaN; units dict; (pixel_lat, pixel_lon)).
+    """
+    variables = list(variables)
+    row, col, pixel, units = locate_pixel(granules[0], lat, lon, variables)
+    session = earthaccess.get_requests_https_session()
+    with ThreadPoolExecutor(workers) as pool:
+        records = list(pool.map(lambda g: read_granule(session, g, row, col, variables), granules))
+
+    index = pd.DatetimeIndex([granule_info(g)[0] for g in granules], name="datetime")
+    df = pd.DataFrame(records, index=index)[variables].replace(FILL_VALUE, np.nan)
+    return df, units, pixel
 
 
 def main():
@@ -141,6 +214,9 @@ def main():
     parser.add_argument("--lon", type=float, default=DEFAULT_LON)
     parser.add_argument("--start", default="2024-07-01", help="YYYY-MM-DD")
     parser.add_argument("--end", default="2024-07-01", help="YYYY-MM-DD")
+    parser.add_argument("--variables", nargs="+", default=VARIABLES,
+                        help="Geophysical_Data variables to read (default: %(default)s)")
+    parser.add_argument("--workers", type=int, default=WORKERS, help="Parallel requests")
     parser.add_argument("--rows", type=int, default=5, help="Number of records to preview")
     parser.add_argument("--out", help="Optional CSV path to save the full result (e.g. data/smap.csv)")
     args = parser.parse_args()
@@ -161,8 +237,13 @@ def main():
             print(granule_table(granules).head(args.rows))
             return
 
-        print("[OK] Logged in to NASA Earthdata; streaming pixel values...")
-        df, units, pixel = extract_point(granules, args.lat, args.lon)
+        print("[OK] Logged in to NASA Earthdata; reading pixel values...")
+        started = time.perf_counter()
+        try:
+            df, units, pixel = extract_point(granules, args.lat, args.lon, args.variables, args.workers)
+        except ValueError as exc:
+            raise SystemExit(f"[FAIL] {exc}")
+        print(f"Read {len(df)} granules in {time.perf_counter() - started:.0f}s")
         print(f"\nRequested lat={args.lat}, lon={args.lon} | nearest 9 km pixel lat={pixel[0]:.3f}, lon={pixel[1]:.3f}")
         print("Units: " + ", ".join(f"{k} [{v}]" for k, v in units.items()) + " | times are UTC")
         print(f"\nFirst {args.rows} records:")
