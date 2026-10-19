@@ -1,6 +1,6 @@
 # Calibrating WOFOST rotations to Texcoco farm yields
 
-Run on October 18, 2026 (Python 3.13.1, PCSE 6.0.13). Code: [calibration.py](calibration.py); tests: `tests/test_calibration.py`. Everything is opt-in. Default `wofost_rotations` runs and `data/rotations/*.csv` are unchanged: a fresh default baseline is identical to the saved CSV, and so are re-runs of the `no_fertilizer` and `canicula50` suites.
+Run on October 18, 2026 (Python 3.13.1, PCSE 6.0.13). A step-by-step explanation of the method is in [docs/technical_report/calibration.pdf](../../docs/technical_report/calibration.pdf). Code: [calibration.py](calibration.py); tests: `tests/test_calibration.py`. Everything is opt-in. Default `wofost_rotations` runs and `data/rotations/*.csv` are unchanged: a fresh default baseline is identical to the saved CSV, and so are re-runs of the `no_fertilizer` and `canicula50` suites.
 
 **Observed:** SIAP rainfed spring–summer yield per sown hectare for Texcoco (`farm_tool.siap_texcoco`). Fields lost to drought or frost count as zero yield.
 
@@ -35,7 +35,7 @@ The fitted values are in `CALIBRATED`:
 
 ## What drives the gap
 
-1. **Level: European cultivars at attainable yields.** Over 2006–2021 the default potential yields are 11.2 t/ha (maize), 12.0 (barley) and 10.0 (faba bean). Water-limited yields are the same: water costs under 1% on average, since the 100 cm IGBP profile holds 236 mm of plant-available water and May–October rain is ~750 mm. So the default only loses yield to N, 44% for maize and 49% for barley. Faba bean fixes 80% of its N (`NFIX_FR`), so nothing pulls it down: 9.8 t/ha simulated against 1.9 observed.
+1. **Level: European cultivars at attainable yields.** Over 2006–2021 the default potential yields are 11.2 t/ha (maize), 12.0 (barley) and 10.0 (faba bean). Water-limited yields are the same: water costs under 1% on average, since the 100 cm IGBP profile holds 236 mm of plant-available water and May–October rain is ~770 mm. So the default only loses yield to N, 44% for maize and 49% for barley. Faba bean fixes 80% of its N (`NFIX_FR`), so nothing pulls it down: 9.8 t/ha simulated against 1.9 observed.
 2. **Nitrogen supply.** Default maize takes up ~150 kg N/ha:
    - 80 kg from fertilizer (160 kg × `N_RECOVERY` 0.5);
    - ~64 kg per season from mineralization (0.5% of IGBP's 12.7 t N/ha in 0–100 cm);

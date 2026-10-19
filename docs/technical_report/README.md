@@ -1,6 +1,6 @@
 # Technical report (LaTeX)
 
-`main.tex` documents the data pipeline, the crop model equations, the Mexican-context additions, the assumptions and the results. Tables in `tables/` are generated from the simulations, so the numbers always match the data.
+`main.tex` documents the data pipeline, the crop model equations, the Mexican-context additions, the assumptions and the results. Two companions: `wofost_primer.tex` explains what kind of model WOFOST is, and `calibration.tex` explains, step by step, how the model was calibrated to Texcoco farm yields (SIAP). Tables in `tables/` are generated from the simulations, so the numbers always match the data.
 
 ## Build the PDF
 
@@ -17,4 +17,10 @@ Rerun the simulations (commands in the report's Reproducibility section, saved u
 
 ```bash
 python docs/technical_report/make_tables.py
+```
+
+The calibration figures come from the calibrated runs in `data/rotations_calibrated/` (see `calibration.tex`, section 10):
+
+```bash
+python docs/technical_report/make_calibration_figures.py
 ```
