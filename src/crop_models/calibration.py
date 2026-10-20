@@ -23,6 +23,7 @@ written to data/rotations_calibrated/. Results and diagnosis: CALIBRATION_RESULT
 
 Usage (from the repo root):
     python -m src.crop_models.calibration --sensitivity     # one-at-a-time diagnostics (water- and N-limited only)
+    python -m src.crop_models.calibration --station-check   # can the model reproduce the fertilizer trial's yields?
     python -m src.crop_models.calibration --fit             # grid search on 2006-2021, prints before/after
     python -m src.crop_models.calibration --simulate        # calibrated baseline -> data/rotations_calibrated/
     python -m src.crop_models.calibration --simulate --scenarios baseline rain80 no_fertilizer
@@ -133,8 +134,9 @@ def fit_metrics(both, years):
             "ratio": group["simulated_t_ha"].mean() / group["observed_t_ha"].mean(),
             "bias_t_ha": error.mean(),
             "rmse_t_ha": float(np.sqrt((error ** 2).mean())),
+            # Constant series (e.g. climatology) have no correlation; allow for floating-point noise.
             "correlation": (group["simulated_t_ha"].corr(group["observed_t_ha"])
-                            if len(group) > 2 and group[["simulated_t_ha", "observed_t_ha"]].std().min() > 0
+                            if len(group) > 2 and group[["simulated_t_ha", "observed_t_ha"]].std().min() > 1e-9
                             else np.nan),
         })
     return pd.DataFrame(rows).set_index("crop")
@@ -157,11 +159,14 @@ def best_candidate(scores, crop):
     return rows.sort_values(keys, kind="stable").iloc[0]
 
 
+def continuous_maize_mean(seasons, years=CALIBRATION_YEARS):
+    """Mean yield (t/ha) of maize grown after maize every year, over `years`."""
+    return seasons.loc[(seasons["rotation"] == "maize") & seasons["year"].isin(years), TARGET].mean()
+
+
 def fertilizer_ratio(fertilized, unfertilized, years=CALIBRATION_YEARS):
     """Mean continuous-maize yield without fertilizer divided by the same with fertilizer, over `years`."""
-    def mean(seasons):
-        return seasons.loc[(seasons["rotation"] == "maize") & seasons["year"].isin(years), TARGET].mean()
-    return mean(unfertilized) / mean(fertilized)
+    return continuous_maize_mean(unfertilized, years) / continuous_maize_mean(fertilized, years)
 
 
 def within_trial(scores, target=TRIAL_NO_N_RATIO, tolerance=TRIAL_TOLERANCE):
@@ -326,6 +331,8 @@ def maize_diagnostics(runs):
 # after sowing (plausible for Valles Altos hybrids) but grain fill runs into the frosts; x0.8 matures in ~155
 # days. Below x0.8 the cycle is an early-maturing material farmers do not grow, and the yield fit would only
 # use it to flatten year-to-year variation. Below x0.35 photosynthesis the crops barely establish.
+# Soil N release is capped at 100 kg/season (wofost_rotations.run_season, PCSE's valid NSOILBASE range): with
+# 12,709 kg/ha of soil N, shares above 0.79% all give 100 kg, so 1% below means 100 kg, not 127.
 N_SUPPLY = [  # (fertilizer N recovery, share of soil N mineralized per season), from low to high supply
     (0.2, 0.0025),  # the first calibration's choice, kept to show what the trial constraint rules out
     (0.5, 0.005),   # simulator defaults
@@ -393,6 +400,31 @@ def fit(runner, siap, variety, order=FIT_ORDER, candidates=CANDIDATES, history_c
     return knobs, pd.concat(history, ignore_index=True)
 
 
+def station_check(runner, variety, tsum_scales=(1.0, 0.8), photosynthesis_scales=(1.0, 0.7, 0.65, 0.6, 0.55),
+                  mineralization_rates=(0.005, 0.0075, 0.0079)):
+    """Continuous-maize yields with and without fertilizer at station-like settings, to compare with the trial's
+    absolute 5.2 and 5.6 t/ha (not just their ratio). Fertilizer recovery stays at the default 0.5; 0.79% of
+    soil N is the simulator's 100 kg/season cap. Returns one row per setting (fit-year means, t/ha)."""
+    cases = {}
+    for tsum, photosynthesis, mineralization in itertools.product(tsum_scales, photosynthesis_scales,
+                                                                  mineralization_rates):
+        settings = simulator_settings({"maize": {"tsum_scale": tsum, "photosynthesis_scale": photosynthesis},
+                                       "site": {"mineralization_rate": mineralization}}, variety)
+        for n_scale in (1.0, 0.0):
+            cases[(tsum, photosynthesis, mineralization, n_scale)] = {**settings, "n_scale": n_scale}
+    runs = runner.run(cases, ["maize"])
+    rows = []
+    for tsum, photosynthesis, mineralization in itertools.product(tsum_scales, photosynthesis_scales,
+                                                                  mineralization_rates):
+        fertilized, unfertilized = (runs[(tsum, photosynthesis, mineralization, n)] for n in (1.0, 0.0))
+        rows.append({"tsum_scale": tsum, "photosynthesis_scale": photosynthesis,
+                     "soil_n_kg_season": min(100.0, mineralization * 12709),
+                     "unfertilized_t_ha": continuous_maize_mean(unfertilized),
+                     "fertilized_t_ha": continuous_maize_mean(fertilized),
+                     "ratio": fertilizer_ratio(fertilized, unfertilized)})
+    return pd.DataFrame(rows)
+
+
 def run_metadata(lat=19.53, lon=-98.85):
     """Versions, git commit and the date of the NASA POWER weather used, so saved runs can be traced.
 
@@ -452,19 +484,22 @@ def simulate_scenarios(knobs, scenarios=("baseline",), out_dir=OUT_DIR, lat=19.5
 def main():
     parser = argparse.ArgumentParser(description="Calibrate WOFOST rotations to SIAP Texcoco yields (opt-in).")
     parser.add_argument("--sensitivity", action="store_true", help="One-at-a-time diagnostics (fit years only)")
+    parser.add_argument("--station-check", action="store_true",
+                        help="Continuous maize with and without fertilizer at station-like settings vs the trial")
     parser.add_argument("--fit", action="store_true", help="Grid search on 2006-2021 and report before/after")
     parser.add_argument("--simulate", action="store_true", help="Run calibrated scenarios into --out-dir")
     parser.add_argument("--scenarios", nargs="+", choices=list(SCENARIOS), default=["baseline"])
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--workers", type=int)
     args = parser.parse_args()
-    if not (args.sensitivity or args.fit or args.simulate):
-        parser.error("Choose --sensitivity, --fit and/or --simulate")
+    if not (args.sensitivity or args.station_check or args.fit or args.simulate):
+        parser.error("Choose --sensitivity, --station-check, --fit and/or --simulate")
 
     siap = siap_texcoco()
     pd.set_option("display.width", 250)
     pd.set_option("display.max_columns", None)
-    if args.sensitivity or args.fit:
+    if args.sensitivity or args.station_check or args.fit:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
         runner = Runner(workers=args.workers)
         variety = variety_parameters()
         try:
@@ -472,8 +507,13 @@ def main():
                 scores, extra = sensitivity(runner, siap, variety)
                 print(scores.round(3).to_string(index=False))
                 print(extra.round(2).to_string())
+                scores.merge(extra.reset_index(), on="label").to_csv(args.out_dir / "sensitivity.csv", index=False)
+            if args.station_check:
+                table = station_check(runner, variety)
+                print(f"Trial: {5.2} t/ha without fertilizer, {5.6} with 160 kg N/ha (ratio {TRIAL_NO_N_RATIO:.2f})")
+                print(table.round(2).to_string(index=False))
+                table.to_csv(args.out_dir / "station_check.csv", index=False)
             if args.fit:
-                args.out_dir.mkdir(parents=True, exist_ok=True)
                 knobs, _ = fit(runner, siap, variety, history_csv=args.out_dir / "fit_history.csv")
                 (args.out_dir / "fitted_knobs.json").write_text(json.dumps(knobs, indent=2) + "\n")
                 calibrated = simulator_settings(knobs, variety)

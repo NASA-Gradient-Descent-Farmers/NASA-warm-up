@@ -100,7 +100,7 @@ Maize, water- and N-limited, t/ha of grain dry matter (failed seasons, <1 t/ha, 
 - **Timing of drought matters more than total rain**: 2023 (478 mm, a 28-day dry spell, 12 mm in June) failed after maize; 2022 (565 mm) didn't.
 - **Rotations buffer moderate drying** (20% less rain: maize every year loses 1.0 t/ha, rotations 0.3-0.5), but **not severe drying** (40% less rain: 8-10 of 20 maize seasons fail in every rotation).
 - **Frost ended 12 of 20 maize seasons** with rain-onset sowing; sowing in mid-May gives much more (8.3-9.0 t/ha), though the model can't see failed emergence in dry soil.
-- **The model's nitrogen response is too strong**: without fertilizer it gives ~2 t/ha, while the Texcoco trial measured 5.2 t/ha unfertilized (5.6 fertilized). The calibration ([CALIBRATION_RESULTS.md](CALIBRATION_RESULTS.md)) keeps that small response by lowering photosynthesis instead of nitrogen, which also removes the simulated rotation benefit for maize.
+- **The model's soil N supply is too low for the Texcoco station**: without fertilizer it gives ~2 t/ha, while the Texcoco trial measured 5.2 t/ha unfertilized (5.6 fertilized). Reproducing the trial needs ~95-100 kg N/ha of soil N per season instead of 64, and ~40% less photosynthesis than the European parameters ([CALIBRATION_RESULTS.md](CALIBRATION_RESULTS.md)). The farm-level calibration lowers photosynthesis, which also removes the simulated rotation benefit for maize.
 - **Soil moisture vs SMAP**: correlation 0.87 (2023-2024, 0-100 cm).
 
 The report regenerates these tables from the CSVs: `python docs/technical_report/make_tables.py`.

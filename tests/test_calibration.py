@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.crop_models.calibration import (CALIBRATION_YEARS, DEFAULT, HOLDOUT_YEARS, TRIAL_NO_N_RATIO, baselines,
-                                         best_candidate, distance_from_default, edge_knobs, fertilizer_ratio,
+                                         best_candidate, continuous_maize_mean, distance_from_default, edge_knobs, fertilizer_ratio,
                                          fit_metrics, grid, paired, scale_table, simulator_settings,
                                          split_candidate, variety_overrides, with_baselines, within_trial)
 from src.crop_models.farm_tool import simulated_like_siap
@@ -103,6 +103,12 @@ class MetricTests(unittest.TestCase):
         persistence = naive["persistence"].set_index("year")["simulated_t_ha"]
         self.assertEqual(persistence.to_dict(), {2021: 2.0, 2022: 4.0})  # 2024 has no 2023 to persist
 
+    def test_constant_series_have_no_correlation(self):
+        both = pd.DataFrame({"crop": "barley", "year": [2006, 2007, 2008],
+                             "simulated_t_ha": [1.78] * 3 + np.array([0.0, 1e-16, -1e-16]),
+                             "observed_t_ha": [1.0, 2.0, 3.0]})
+        self.assertTrue(np.isnan(fit_metrics(both, CALIBRATION_YEARS).loc["barley", "correlation"]))
+
     def test_skill_is_relative_to_climatology(self):
         siap = pd.DataFrame({"crop": "maize", "year": range(2006, 2026), "yield_sown_t_ha": [2.0, 4.0] * 10})
         model = pd.DataFrame({"label": "model", "split": "calibration", "crop": "maize", "rmse_t_ha": [0.5]})
@@ -145,6 +151,7 @@ class TrialConstraintTests(unittest.TestCase):
             return pd.DataFrame({"rotation": ["maize", "maize", "maize-barley"], "year": [2010, 2023, 2010],
                                  TARGET: [maize, 99.0, partner]})
         self.assertAlmostEqual(fertilizer_ratio(runs(4.0, 8.0), runs(3.0, 0.0)), 0.75)
+        self.assertAlmostEqual(continuous_maize_mean(runs(4.0, 8.0)), 4.0)  # 2023 and the partner rotation excluded
 
     def test_within_trial_keeps_close_candidates_or_the_closest(self):
         scores = pd.DataFrame({"label": ["a", "b", "c"], "fertilizer_ratio": [0.3, 0.88, 0.99]})
