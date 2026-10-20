@@ -10,7 +10,7 @@ numpy>=1.26
 pandas>=2.1
 
 # Crop simulation (WOFOST)
-pcse>=6.0
+pcse==6.0.13  # wofost_rotations.py patches this version's N_Stress; check it before upgrading
 
 # Exploratory yield surrogates (decision trees, random forest, XGBoost)
 scikit-learn>=1.4

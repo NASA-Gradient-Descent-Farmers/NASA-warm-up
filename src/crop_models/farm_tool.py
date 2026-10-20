@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .rotation_experiments import TARGET, load_seasons
+from .rotation_experiments import TARGET, Scenario, load_seasons
 
 OBSERVATIONS = Path("data/observations")
 SCENARIO_DIRS = [Path("data/rotations"), Path("data/exploration/scenarios"), Path("data/exploration/notebook_runs")]
@@ -24,8 +24,33 @@ def scenario_files(directories=SCENARIO_DIRS):
 
 
 def load_scenarios(paths=None, spinup_years=1):
-    """All saved WOFOST scenario tables (the ten suites plus notebook runs), spin-up years removed."""
-    return load_seasons(paths or scenario_files(), spinup_years)
+    """All saved WOFOST scenario tables (the ten suites plus notebook runs), spin-up years removed.
+
+    A run that repeats an earlier scenario exactly (e.g. a notebook run left at the default settings,
+    which reproduces the baseline) is skipped, so its seasons are not counted twice.
+    """
+    seasons, dropped = drop_duplicate_runs(load_seasons(paths or scenario_files(), spinup_years))
+    if dropped:
+        print(f"Skipped {', '.join(dropped)}: same settings and yields as an earlier scenario.")
+    return seasons
+
+
+def drop_duplicate_runs(seasons):
+    """(seasons without repeated scenarios, names dropped); the first scenario loaded is kept.
+
+    A repeat has the same settings and the same simulated yields for the same rotations, phases and years.
+    """
+    settings = list(Scenario().metadata())
+    kept, dropped = [], []
+    for name, group in seasons.groupby("scenario", sort=False):
+        signature = tuple(group[settings].iloc[0])
+        values = group.set_index(["rotation", "phase", "year"])[TARGET].sort_index()
+        if any(signature == other_signature and values.index.equals(other.index) and np.allclose(values, other)
+               for other_signature, other in kept):
+            dropped.append(name)
+        else:
+            kept.append((signature, values))
+    return seasons[~seasons["scenario"].isin(dropped)].reset_index(drop=True), dropped
 
 
 def extract_siap(frame, year, crops=SIAP_CROPS):
@@ -77,14 +102,55 @@ def default_prices(siap, last_years=3):
     return recent.groupby("crop")["price_mxn_t"].median().to_dict()
 
 
-def farm_gap(seasons, siap, scenario="baseline"):
-    """Per crop: observed SIAP yield per sown ha against WOFOST (all rotations) over shared years.
+def rotation_weights(siap):
+    """Share of each year's maize area by the crop grown there the year before, from SIAP sown areas.
 
-    `factor` rescales simulated yields to the municipal average level. `correlation` is the
-    year-to-year agreement; a low or negative value means the year pattern is not trustworthy.
+    Maize after barley or faba bean covers at most last year's barley or faba bean area; the rest is
+    counted as maize after maize (SIAP has no field histories, and other preceding crops are not
+    simulated). Returns a DataFrame by year with columns maize, barley and fababean summing to 1; a
+    year without the previous year's areas is all maize after maize.
     """
-    simulated = (seasons[seasons["scenario"] == scenario].groupby(["crop", "year"])[TARGET].mean()
-                 .rename("simulated_t_ha"))
+    area = siap.pivot_table(index="year", columns="crop", values="sown_ha", aggfunc="sum")
+    area = (area.reindex(range(area.index.min(), area.index.max() + 1))
+            .reindex(columns=list(SIAP_CROPS)).fillna(0.0))
+    previous = area.shift(1).fillna(0.0)
+    maize_area = area["maize"].where(area["maize"] > 0)
+    shares = pd.DataFrame({crop: previous[crop] / maize_area for crop in ("barley", "fababean")}).fillna(0.0)
+    total = shares.sum(axis=1)
+    shares = shares.div(total.clip(lower=1.0), axis=0)  # partner crops can cover at most all the maize
+    return pd.concat([(1 - shares.sum(axis=1)).rename("maize"), shares], axis=1)
+
+
+def simulated_like_siap(seasons, siap):
+    """Simulated yield per crop and year (t/ha), comparable with SIAP's municipal average.
+
+    Maize averages the crops it follows, weighted by `rotation_weights`; weight for a previous crop
+    missing from `seasons` goes to those present. Barley and faba bean average all rotations and
+    phases, since SIAP cannot tell what they follow.
+    """
+    simulated = seasons.groupby(["crop", "year"])[TARGET].mean()
+    maize = seasons[(seasons["crop"] == "maize") & seasons["previous_crop"].notna()]
+    if maize.empty:
+        return simulated.rename("simulated_t_ha")
+    by_previous = maize.groupby(["year", "previous_crop"])[TARGET].mean().unstack()
+    weights = rotation_weights(siap).reindex(index=by_previous.index, columns=by_previous.columns)
+    weights = weights.fillna(0.0).where(by_previous.notna(), 0.0)
+    total = weights.sum(axis=1)
+    weighted = (by_previous.fillna(0.0) * weights).sum(axis=1) / total.where(total > 0)
+    weighted = weighted.fillna(by_previous.mean(axis=1))  # no SIAP areas that year: plain mean
+    weighted.index = pd.MultiIndex.from_product([["maize"], weighted.index], names=["crop", "year"])
+    others = simulated[simulated.index.get_level_values("crop") != "maize"]
+    return pd.concat([others, weighted]).sort_index().rename("simulated_t_ha")
+
+
+def farm_gap(seasons, siap, scenario="baseline"):
+    """Per crop: observed SIAP yield per sown ha against WOFOST over shared years.
+
+    Simulated yields are combined as SIAP would see them (`simulated_like_siap`). `factor` rescales
+    simulated yields to the municipal average level. `correlation` is the year-to-year agreement; a
+    low or negative value means the year pattern is not trustworthy.
+    """
+    simulated = simulated_like_siap(seasons[seasons["scenario"] == scenario], siap)
     observed = siap.set_index(["crop", "year"])["yield_sown_t_ha"].rename("observed_t_ha")
     both = pd.concat([simulated, observed], axis=1, join="inner").dropna().reset_index()
     rows = []

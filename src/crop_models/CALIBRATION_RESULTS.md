@@ -1,98 +1,119 @@
 # Calibrating WOFOST rotations to Texcoco farm yields
 
-Run on October 18, 2026 (Python 3.13.1, PCSE 6.0.13). A step-by-step explanation of the method is in [docs/technical_report/calibration.pdf](../../docs/technical_report/calibration.pdf). Code: [calibration.py](calibration.py); tests: `tests/test_calibration.py`. Everything is opt-in. Default `wofost_rotations` runs and `data/rotations/*.csv` are unchanged: a fresh default baseline is identical to the saved CSV, and so are re-runs of the `no_fertilizer` and `canicula50` suites.
+Second version, October 19, 2026 (Python 3.13.1, PCSE 6.0.13). The step-by-step explanation is in [docs/technical_report/calibration.pdf](../../docs/technical_report/calibration.pdf). Code: [calibration.py](calibration.py); tests: `tests/test_calibration.py`, `tests/test_farm_tool.py`. Everything is opt-in: default `wofost_rotations` runs and `data/rotations/*.csv` are unchanged.
 
 **Observed:** SIAP rainfed spring–summer yield per sown hectare for Texcoco (`farm_tool.siap_texcoco`). Fields lost to drought or frost count as zero yield.
 
-**Simulated:** water- and N-limited yield with the grain-N constraint, averaged per crop and year over all rotations and phases, as in `farm_tool.farm_gap`.
+**Simulated:** water- and N-limited yield, combined as SIAP would see it (`farm_tool.simulated_like_siap`).
+- **Maize** is weighted by SIAP crop areas. Last year's barley or faba bean area caps how much maize follows them, and the rest is maize after maize. That rest is 93% of the maize area on average in 2006–2021, and over 97% since 2019.
+- **Barley and faba bean** are averaged over all rotations, since SIAP can't tell what they follow.
 
 **Years:**
-- Fit: 2006–2021 only. 2005 is spin-up.
-- Holdout: 2022–2025, never used for fitting.
-- SIAP has no barley before 2008 and no faba bean in 2020–2021.
+- Fit: 2006–2021 only.
+- Holdout: 2022–2025. It was never used to choose knobs, but it was looked at while designing the first version.
 
 ## Results
 
-| Crop | Run | Fit 2006–2021: sim / obs (t/ha) | RMSE | r | Holdout 2022–2025: sim / obs | RMSE | r |
-|---|---|---:|---:|---:|---:|---:|---:|
-| Maize | default | 6.34 / 2.56 | 4.24 | 0.36 | 7.63 / 2.98 | 4.66 | 0.92 |
-| Maize | calibrated | **2.35** / 2.56 | **0.71** | 0.39 | 2.74 / 2.98 | 0.89 | −0.25 |
-| Barley | default | 6.15 / 1.78 | 4.37 | −0.08 | 5.81 / 1.55 | 4.28 | −0.21 |
-| Barley | calibrated | **1.65** / 1.78 | **0.28** | −0.11 | 1.30 / 1.55 | 0.41 | 0.21 |
-| Faba bean | default | 9.79 / 1.94 | 7.87 | −0.11 | 9.59 / 1.17 | 8.45 | −0.55 |
-| Faba bean | calibrated | **1.73** / 1.94 | **0.61** | −0.18 | 1.73 / 1.17 | 0.60 | −0.27 |
+| Crop | Prediction | Fit 2006–2021: sim / obs (t/ha) | RMSE | r | skill | Holdout: sim / obs | RMSE | skill |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Maize | default | 6.47 / 2.56 | 4.49 | 0.35 | −5.4 | 5.50 / 2.98 | 4.49 | −4.6 |
+| Maize | calibrated | **2.31** / 2.56 | 1.07 | 0.11 | −0.53 | 2.35 / 2.98 | 1.03 | −0.29 |
+| Maize | SIAP mean (climatology) | 2.56 / 2.56 | **0.70** | | 0 | 2.56 / 2.98 | **0.80** | 0 |
+| Barley | default | 6.15 / 1.78 | 4.37 | −0.08 | −22.8 | 5.81 / 1.55 | 4.28 | −17.4 |
+| Barley | calibrated | **1.84** / 1.78 | 0.25 | −0.03 | −0.37 | 1.55 / 1.55 | 0.21 | 0.08 |
+| Barley | SIAP mean (climatology) | 1.78 / 1.78 | **0.18** | | 0 | 1.78 / 1.55 | 0.23 | 0 |
+| Faba bean | default | 9.79 / 1.94 | 7.87 | −0.11 | −15.0 | 9.59 / 1.17 | 8.45 | −9.9 |
+| Faba bean | calibrated | **1.75** / 1.94 | 0.61 | −0.17 | −0.23 | 1.78 / 1.17 | 0.62 | 0.20 |
+| Faba bean | SIAP mean (climatology) | 1.94 / 1.94 | **0.49** | | 0 | 1.94 / 1.17 | 0.78 | 0 |
 
-Calibration fixes the **level**: holdout errors drop 5–14× and the holdout means are within 0.25 t/ha for maize and barley. The `farm_gap` rescaling factors over 2006–2025 fall from 0.18–0.40 to 1.02–1.10. It does **not** add year-to-year skill. Maize correlation stays ~0.4 in the fit years, and no crop has a meaningful holdout correlation from four years. Treat calibrated yields as realistic averages and risk ranges, not as forecasts for a given year.
+Skill is 1 − RMSE / RMSE(climatology); above 0 beats the SIAP average.
 
-The fitted values are in `CALIBRATED`:
+Persistence (last year's SIAP yield) has these RMSEs:
+
+| Crop | Fit | Holdout |
+|---|---:|---:|
+| Maize | 0.97 | 1.25 |
+| Barley | 0.17 | 0.05 |
+| Faba bean | 0.38 | 0.08 |
+
+What the results say:
+- **The level is fixed.** The calibrated means are within 0.06–0.25 t/ha of SIAP in the fit years. The `farm_gap` factors go from 0.42 / 0.28 / 0.18 to 1.14 / 0.98 / 1.01.
+- **It doesn't beat the SIAP average year by year.** Climatology wins in the fit years for every crop and in the holdout for maize. Persistence beats everything for barley and faba bean, whose SIAP series barely change.
+- **Year pattern:** calibrated maize swings about as much as SIAP (SD 0.88 vs 0.72 t/ha) but in the wrong years (r 0.11). Faba bean is too steady (0.23 vs 0.51) and misses SIAP's decline over time.
+- **Use:** calibrated runs give realistic levels for scenarios, not forecasts.
+
+## Fitted knobs (`CALIBRATED`)
 
 | Crop | Phenology (TSUM ×) | Photosynthesis × | Fertilizer N recovery |
 |---|---:|---:|---:|
-| Maize | 1.0 | 1.0 | 0.20 (default 0.5) |
-| Barley | 0.8 | 0.5 | 0.5 |
-| Faba bean | 1.0 | 0.45 | 0.5 |
-| Site | | | Mineralization 0.25% of soil N per season (default 0.5%) |
+| Maize | 0.8 | 0.47 | 0.5 (default) |
+| Barley | 0.9 | 0.475 | 0.5 (default) |
+| Faba bean | 0.9 | 0.475 | 0.5 (default) |
+| Site | | | Mineralization 0.5% of soil N per season (default) |
+
+**The fertilizer-trial constraint:**
+- **The trial:** at INIFAP Texcoco, maize gave 5.2 t/ha unfertilized vs 5.6 t/ha with 160 kg N/ha (Alonso-Sánchez et al. 2023).
+- **The rule:** maize candidates must keep their no-fertilizer / fertilized ratio within 0.1 of 0.93. 56 of the 88 passed, and the chosen one has 0.995.
+- **What it rules out:** the first calibration cut nitrogen instead, giving a ratio of 0.12. Without the constraint the best candidate still cuts nitrogen (RMSE 0.87, ratio 0.26).
+
+**Grid edges:**
+- Maize phenology sits on the agronomic lower bound of ×0.8.
+- Its N supply ties with higher supplies, because nitrogen no longer limits it; the tie goes to the defaults.
 
 ## What drives the gap
 
-1. **Level: European cultivars at attainable yields.** Over 2006–2021 the default potential yields are 11.2 t/ha (maize), 12.0 (barley) and 10.0 (faba bean). Water-limited yields are the same: water costs under 1% on average, since the 100 cm IGBP profile holds 236 mm of plant-available water and May–October rain is ~770 mm. So the default only loses yield to N, 44% for maize and 49% for barley. Faba bean fixes 80% of its N (`NFIX_FR`), so nothing pulls it down: 9.8 t/ha simulated against 1.9 observed.
-2. **Nitrogen supply.** Default maize takes up ~150 kg N/ha:
-   - 80 kg from fertilizer (160 kg × `N_RECOVERY` 0.5);
-   - ~64 kg per season from mineralization (0.5% of IGBP's 12.7 t N/ha in 0–100 cm);
-   - the rest from carryover.
+1. **European cultivars at attainable yields.** Potential yields are 11.2 / 12.0 / 10.0 t/ha, and water costs under 1% on average (236 mm plant-available water, ~770 mm May–October rain).
+2. **Nitrogen was the default model's only brake** on maize and barley, but the Texcoco trial says nitrogen barely limits maize there. With that constraint, maize reaches the farm level only through low photosynthesis, a lumped stand-in for weeds, pests, disease, plant stand and landraces. There yields climb steeply: 2.0 t/ha at ×0.45, 2.8 at ×0.5.
+3. **Phenology and frost.** The POWER cell is at 2,633 m, about 380 m above the fields, so its weather is ~2.5 °C colder. At default TSUM, 69% of maize seasons end by frost (median maturity December 5). The calibrated ×0.8 cycle matures in 75% of seasons, in about 155 days.
+4. **Frost threshold and soil depth are minor.** Each changes fit-year means by under 0.4 t/ha.
+5. **2023:**
+   - In the default model, continuous maize nearly fails (0.01 t/ha). The late 2022 crop drained the profile, then came a false start and a dry June. With area weighting this dominates the default model's 2023.
+   - Calibrated maize gives 2.0 t/ha in every rotation, against SIAP's 4.0.
 
-   This is the lever that matches maize. A fit that lowered photosynthesis instead got the level but lost the year pattern (r ≈ 0.1 vs 0.4), and below ×0.5 the crop barely establishes.
-3. **Phenology and frost.** The POWER cell sits at 2,633 m, about 380 m above the El Batán fields, so it runs roughly 2.5 °C colder (standard lapse rate).
-   - Grain_maize_202 flowers ~87 days after sowing, which is plausible for Valles Altos hybrids. But it needs about 100 more days of grain fill at these temperatures.
-   - As a result, 69% of 2006–2021 maize seasons end at the first night ≤0 °C rather than at maturity. When maturity is reached, its median date is December 5.
-   - Frost timing is therefore what drives the model's year-to-year variation. In 2011, late sowing and an October 23 frost give a low year that matches SIAP. In 2010, a November 4 frost gives 1.7 t/ha while SIAP reports 2.9.
-   - TSUM ×0.8 matures 75% of maize seasons (median October 28), but it *raises* yields because fewer grain fills are cut short. The fit kept the default maize phenology.
-   - The maize grid was limited to TSUM ×0.8–1.0. At ×0.6 maize flowers 56 days after sowing, an early-maturing cultivar Texcoco doesn't grow, and an earlier fit picked it only to flatten year-to-year variation.
-4. **Frost threshold and soil depth are minor.** Ending the crop at −2 °C instead of 0 °C adds 0.16 t/ha of maize. A 50 cm soil changes the fit-year means by under 0.05 t/ha; it lowers holdout maize by 1.1 t/ha, through dry 2022–2023.
-5. **Why continuous maize fails in 2023.** SIAP reports its best maize year in 20 years (4.0 t/ha). Averaged over rotations, the model also has a good 2023 (8.8 t/ha default, 2.8 calibrated). The near-failure (0.01 t/ha) is continuous maize only, in both default and calibrated runs:
-   - The 2022 maize, sown late (June 15), kept transpiring until January 5, 2023. That left under 10 mm of plant-available water on March 1, against 130–200 mm after barley or faba bean.
-   - The 2023 crop was sown May 15, after ~24 mm of early-May rain, then got almost no rain in June (a 28-day dry spell).
-   - With zero transpiration its seedling leaf area decayed from 0.05 to 0.003, and it never recovered.
+## Rotation results need a second look
 
-   The causes are the slow phenology (late maturity drains the profile), a false start under the onset rule, and WOFOST's lack of re-sowing. With TSUM ×0.8 the same season yields 9.9 t/ha. A re-sowing rule or a later onset threshold would address it more directly than calibration can.
+- **No rotation effect once calibrated.** Calibrated maize after barley or faba bean yields 2.32 t/ha, the same as maize after maize (2.31).
+- **The default baseline benefit is one year.** Maize–faba bean's +0.63 t/ha over continuous maize (EXPLORATION.md) comes entirely from the 2023 continuous-maize failure; without 2023 it's −0.003.
+- **The half-fertilizer benefit came through nitrogen.** With 20% less rain and half fertilizer, the default model's +1.0 t/ha (+0.94 over 2006–2021) came through nitrogen, which hardly limits calibrated maize.
+- **SIAP can't settle it.** Field data on fertilizer response and rotations are needed.
 
-## Method
+## What changed from the first version
 
-Knobs, applied through PCSE parameter overrides:
-- **Phenology:** TSUM1 and TSUM2 scaled together.
-- **Photosynthesis:** a lumped farm-efficiency factor for weeds, pests, disease, plant stand and landraces, scaling `AMAX_REF`, `AMAX_SLP` and `EFFTB`.
-- **Fertilizer N recovery** per crop.
-- **Site mineralization rate.**
+An independent review found these problems in version 1, each now fixed:
 
-Fitting:
-- Coordinate grid search: barley, then faba bean, then maize. Maize goes last because it inherits water and N from the calibrated partners; at the fitted photosynthesis, barley is hardly N-limited and faba bean fixes its own N.
-- The objective is the lowest 2006–2021 RMSE. Ties go to higher correlation, then to the candidate closest to the defaults.
-- Every candidate's scores are saved to `fit_history.csv`, and the fit takes about 10 minutes on 8 cores.
+| Problem in version 1 | Fix |
+|---|---|
+| Maize was averaged over rotations equally. Re-weighted by real areas, its holdout RMSE was 2.27, not 0.89. | Maize is weighted by SIAP areas. |
+| No naive baselines were reported. | Climatology, persistence and a skill score are reported. |
+| The nitrogen choice sat on the grid edge and contradicted the trial (no-fertilizer ratio 0.12 vs 0.93). | The trial constraint applies, and photosynthesis may compete. |
+| Barley's ×0.8 phenology was a coarse-grid artifact. | The photosynthesis grid is finer. |
+| Diagnostics printed holdout scores. | Diagnostics score fit years only. |
+| The notebook's `my_scenario` duplicated the baseline. | `load_scenarios` skips repeated runs: 704 → 640 maize training rows, training mean 5.12 → 5.00. |
+| Docs drifted from the code. | Docs corrected, PCSE pinned to 6.0.13, run metadata recorded. |
 
 ## Caveats
 
-- **Fertilizer recovery and mineralization can't be told apart.** SIAP only constrains total N supply. Keeping mineralization at the default needs maize fertilizer recovery near 0.05, and even then it fits worse (RMSE about 1.0, mean still about +0.6 t/ha). The fitted half mineralization fits better (RMSE 0.71), but it makes maize very fertilizer-dependent. Calibrated no-fertilizer maize falls to 0.29 t/ha, against 2.35 fertilized; the default goes from 6.34 to 2.03. That response is likely too steep. Use calibrated `no_fertilizer` and `half_fertilizer` runs with care, and refit with on-farm N trials when available.
-- **Barley and faba bean sit just above an establishment cliff.** At photosynthesis ×0.4, barley falls to 0.7–1.2 t/ha and faba bean to 0.7–1.1. Stress scenarios such as `rain60` may exaggerate failures for these crops.
-- **SIAP limits what can be learned.**
-  - The data are municipal estimates with many rounded values (2.6, 2.4).
-  - Barley and faba bean cover only 4–12 ha after 2016.
-  - Faba bean falls from 2.6 t/ha (2005–2009) to 1.2 (2016–2025), a trend weather can't explain. Hence the +0.55 t/ha holdout bias.
-  - The maize loss years 2011 and 2019 (51% and 64% of the area lost) dominate the year signal; the model reproduces 2011 but not 2019.
-- **One POWER cell and one soil point** describe the whole municipality.
+- **One station trial decides the nitrogen split.** Farms may be more N-limited than the station.
+- **Photosynthesis is a lumped knob.** It isn't a measurement of any one loss.
+- **Phenology is bounded by judgment.** There are no observed flowering or maturity dates.
+- **The observations are coarse.** SIAP is municipal and often rounded. Recent barley and faba bean areas are 4–12 ha (31 and 18 ha of barley in 2017–2018).
+- **One weather cell and one soil point** represent the whole municipality.
+- **The weather will change.** PCSE re-downloads POWER weather after 90 days (cache dated 2026-10-12), so saved runs can't be reproduced exactly after about 2027-01-10. `calibration.json` records the weather date, git commit and PCSE version.
 
 ## Reproduce
 
 ```bash
-python -m src.crop_models.calibration --sensitivity     # one-at-a-time diagnostics (~2 min)
-python -m src.crop_models.calibration --fit             # refit on 2006-2021 (~10 min, 8 cores)
+python -m src.crop_models.calibration --sensitivity     # one-at-a-time diagnostics, fit years (~2 min)
+python -m src.crop_models.calibration --fit             # refit (~13 min, 8 cores); writes fit_history.csv, fitted_knobs.json
 python -m src.crop_models.calibration --simulate        # calibrated baseline -> data/rotations_calibrated/
-python -m src.crop_models.calibration --simulate --scenarios baseline rain80 no_fertilizer
+python docs/technical_report/make_calibration_figures.py
 ```
 
-Calibrated CSVs use the scenario name `<name>_calibrated`, so they can be loaded with the default runs. For example, `farm_gap(load_seasons([path]), siap, scenario="baseline_calibrated")` replaces the notebook's per-crop rescaling factor. `calibration.json` in the output directory records the knobs used.
+Calibrated CSVs use the scenario name `<name>_calibrated`, so default and calibrated runs can be loaded together; `farm_gap(load_seasons([path]), siap, scenario="baseline_calibrated")` compares one with SIAP.
 
 ## Next steps
 
-- Pin phenology with observed flowering and maturity dates from INIFAP/CIMMYT trials, or a lapse-rate correction of POWER temperatures, then refit the yield knobs.
-- Constrain the N split with on-farm fertilizer trials, such as the Texcoco dose trial cited in `wofost_rotations.CROPS`.
-- Add a re-sowing rule after failed establishment, which drives the 2023 continuous-maize failure.
+- Pin phenology with observed flowering and maturity dates, or a lapse-rate correction of POWER temperatures.
+- Get on-farm fertilizer and rotation trials to separate nitrogen from other losses.
+- Add a re-sowing rule after failed establishment.
+- Simulate POWER 1984–2025 (42 seasons) for the surrogates; they currently see only 16 weather years.
