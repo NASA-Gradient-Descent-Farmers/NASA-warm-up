@@ -16,8 +16,9 @@ import pandas as pd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from src.crop_models.calibration import CALIBRATION_YEARS, crop_year_yields  # noqa: E402
-from src.crop_models.farm_tool import siap_texcoco  # noqa: E402
+from src.crop_models.calibration import (CALIBRATION_YEARS, TRIAL_NO_N_RATIO, TRIAL_TOLERANCE,  # noqa: E402
+                                         CALIBRATED)
+from src.crop_models.farm_tool import siap_texcoco, simulated_like_siap  # noqa: E402
 
 DEFAULT_RUN = ROOT / "data" / "rotations" / "baseline.csv"
 CALIBRATED_DIR = ROOT / "data" / "rotations_calibrated"
@@ -35,9 +36,10 @@ plt.rcParams.update({
 })
 
 
-def yearly(path):
+def yearly(path, siap):
+    """Simulated yield per crop and year as SIAP would see it (maize weighted by SIAP areas)."""
     seasons = pd.read_csv(path)
-    return crop_year_yields(seasons[seasons["year"] > seasons["year"].min()])
+    return simulated_like_siap(seasons[seasons["year"] > seasons["year"].min()], siap)
 
 
 def levels_figure(default, calibrated, siap):
@@ -64,8 +66,8 @@ def levels_figure(default, calibrated, siap):
     fig.savefig(OUT / "calibration_levels.pdf")
 
 
-def years_figure(default, calibrated, siap):
-    """Year-by-year calibrated and observed yields, with the holdout years shaded."""
+def years_figure(calibrated, siap):
+    """Year-by-year calibrated and observed yields and the fit-year SIAP mean, holdout years shaded."""
     observed = siap.set_index(["crop", "year"])["yield_sown_t_ha"]
     fig, axes = plt.subplots(3, 1, figsize=(6.2, 6.4), sharex=True)
     for ax, (crop, name) in zip(axes, CROPS.items()):
@@ -74,41 +76,51 @@ def years_figure(default, calibrated, siap):
         ax.plot(obs.index, obs.values, color=INK, marker="o", label="SIAP (observed)")
         cal = calibrated[crop].loc[2006:2025]
         ax.plot(cal.index, cal.values, color=BLUE, marker="s", label="Calibrated WOFOST")
+        ax.axhline(obs.loc[list(CALIBRATION_YEARS)].mean(), color=MUTED, linestyle="--", linewidth=1,
+                   label="SIAP mean 2006–2021 (naive baseline)")
         ax.set_title(name, loc="left", fontsize=9.5, color=INK)
         ax.set_ylabel("t/ha")
         ax.set_ylim(0, max(obs.max(), cal.max()) * 1.2)
         ax.text(2023.5, ax.get_ylim()[1] * 0.95, "holdout", ha="center", va="top", fontsize=8, color=INK_2)
-    axes[0].legend(ncol=2, loc="upper center", bbox_to_anchor=(0.5, 1.42))
+    axes[0].legend(ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.42), fontsize=8)
     axes[-1].set_xticks(range(2006, 2026, 2))
     fig.savefig(OUT / "calibration_years.pdf")
 
 
 def maize_grid_figure(history):
-    """Maize step of the fit: mean yield and RMSE against fertilizer N recovery, per mineralization rate."""
-    maize = history[(history["crop"] == "maize") & (history["tsum_scale"] == 1.0)]
-    fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.7))
-    styles = {0.005: (ORANGE, "o", "0.5% (default)"), 0.00375: (AQUA, "^", "0.375%"), 0.0025: (BLUE, "s", "0.25%")}
-    for rate, (color, marker, label) in styles.items():
-        g = maize[maize["mineralization_rate"] == rate].sort_values("n_recovery")
-        for ax, column in zip(axes, ("simulated_mean_t_ha", "rmse_t_ha")):
-            ax.plot(g["n_recovery"], g[column], color=color, marker=marker, label=label)
-            last = g.iloc[-1]
-            ax.annotate(label, (last["n_recovery"], last[column]), xytext=(4, 0), textcoords="offset points",
-                        va="center", fontsize=7.5, color=INK_2)
+    """Maize step of the search at the chosen phenology: mean yield and fertilizer response against
+    photosynthesis, one line per N supply (fertilizer recovery, mineralization)."""
+    tsum = CALIBRATED["maize"]["tsum_scale"]
+    maize = history[(history["crop"] == "maize") & (history["tsum_scale"] == tsum)]
+    supplies = maize[["n_recovery", "mineralization_rate"]].drop_duplicates().sort_values("mineralization_rate")
+    colors = [MUTED, ORANGE, AQUA, BLUE]
+    markers = ["x", "o", "^", "s"]
+    fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.9))
+    for (_, supply), color, marker in zip(supplies.iterrows(), colors, markers):
+        g = maize[(maize["n_recovery"] == supply["n_recovery"])
+                  & (maize["mineralization_rate"] == supply["mineralization_rate"])].sort_values("photosynthesis_scale")
+        label = f"recovery {supply['n_recovery']:g}, soil {100 * supply['mineralization_rate']:g}%"
+        for ax, column in zip(axes, ("simulated_mean_t_ha", "fertilizer_ratio")):
+            ax.plot(g["photosynthesis_scale"], g[column], color=color, marker=marker, label=label)
     axes[0].axhline(maize["observed_mean_t_ha"].iloc[0], color=INK, linestyle="--", linewidth=1)
-    axes[0].text(0.6, maize["observed_mean_t_ha"].iloc[0] - 0.15, "SIAP mean", ha="right", va="top",
+    axes[0].text(1.0, maize["observed_mean_t_ha"].iloc[0] - 0.2, "SIAP mean", ha="right", va="top",
                  fontsize=7.5, color=INK)
-    best = maize.sort_values("rmse_t_ha").iloc[0]
-    axes[1].scatter([best["n_recovery"]], [best["rmse_t_ha"]], s=70, facecolors="none", edgecolors=INK,
-                    linewidths=1.2, zorder=5)
-    axes[1].annotate("chosen", (best["n_recovery"], best["rmse_t_ha"]), xytext=(0, -14),
-                     textcoords="offset points", ha="center", fontsize=7.5, color=INK)
+    axes[1].axhspan(TRIAL_NO_N_RATIO - TRIAL_TOLERANCE, min(1.0, TRIAL_NO_N_RATIO + TRIAL_TOLERANCE),
+                    color="#f1f0ec", zorder=0)
+    axes[1].axhline(TRIAL_NO_N_RATIO, color=INK, linestyle="--", linewidth=1)
+    axes[1].text(1.0, TRIAL_NO_N_RATIO - 0.07, "Texcoco trial (5.2 / 5.6) ± 0.1", ha="right", fontsize=7.5,
+                 color=INK)
+    chosen = maize[(maize["photosynthesis_scale"] == CALIBRATED["maize"]["photosynthesis_scale"])
+                   & (maize["n_recovery"] == CALIBRATED["maize"]["n_recovery"])
+                   & (maize["mineralization_rate"] == CALIBRATED["site"]["mineralization_rate"])].iloc[0]
+    for ax, column in zip(axes, ("simulated_mean_t_ha", "fertilizer_ratio")):
+        ax.scatter([chosen["photosynthesis_scale"]], [chosen[column]], s=80, facecolors="none", edgecolors=INK,
+                   linewidths=1.2, zorder=5)
+        ax.set_xlabel("Maize photosynthesis scale")
     axes[0].set_ylabel("Mean maize yield 2006–2021 (t/ha)")
-    axes[1].set_ylabel("RMSE vs SIAP (t/ha)")
-    for ax in axes:
-        ax.set_xlabel("Fertilizer N recovery")
-        ax.set_xlim(0.07, 0.62)
-    axes[0].set_title("Lines: soil N mineralized per season", loc="left", fontsize=8, color=INK_2)
+    axes[1].set_ylabel("Yield without / with fertilizer")
+    axes[1].set_ylim(0, 1.05)
+    axes[0].legend(fontsize=7, loc="upper left", title="N supply", title_fontsize=7)
     fig.tight_layout(w_pad=2.5)
     fig.savefig(OUT / "calibration_maize_grid.pdf")
 
@@ -124,8 +136,8 @@ def photosynthesis_figure(history):
             ax.plot(line["photosynthesis_scale"], line["simulated_mean_t_ha"], color=color, marker=marker,
                     label=f"TSUM ×{tsum:g}")
         ax.axhline(g["observed_mean_t_ha"].iloc[0], color=INK, linestyle="--", linewidth=1)
-        ax.text(g["photosynthesis_scale"].max(), g["observed_mean_t_ha"].iloc[0] - 0.15, "SIAP mean", ha="right",
-                va="top", fontsize=7.5, color=INK)
+        ax.text(g["photosynthesis_scale"].min(), g["observed_mean_t_ha"].iloc[0] + 0.05, "SIAP mean", ha="left",
+                va="bottom", fontsize=7.5, color=INK)
         best = g.sort_values("rmse_t_ha").iloc[0]
         ax.scatter([best["photosynthesis_scale"]], [best["simulated_mean_t_ha"]], s=70, facecolors="none",
                    edgecolors=INK, linewidths=1.2, zorder=5)
@@ -140,12 +152,12 @@ def photosynthesis_figure(history):
 def main():
     OUT.mkdir(exist_ok=True)
     siap = siap_texcoco(ROOT / "data" / "observations")
-    default, calibrated = yearly(DEFAULT_RUN), yearly(CALIBRATED_DIR / "baseline.csv")
+    default, calibrated = yearly(DEFAULT_RUN, siap), yearly(CALIBRATED_DIR / "baseline.csv", siap)
     history = pd.read_csv(CALIBRATED_DIR / "fit_history.csv")
     knobs = history["label"].map(json.loads).apply(pd.Series)
     history = pd.concat([knobs, history], axis=1)
     levels_figure(default, calibrated, siap)
-    years_figure(default, calibrated, siap)
+    years_figure(calibrated, siap)
     maize_grid_figure(history)
     photosynthesis_figure(history)
     print(f"Saved figures to {OUT}")
