@@ -123,7 +123,7 @@ and the simulated maize yield of year \(t\) is the weighted average of maize aft
   \bar Y_{\text{maize after }p,\ t}.
 \end{equation}
 Over 2006--2021 barley and faba bean areas are only 7.4\% of the next year's maize area on average (at most 24.8\% in
-2009, and under 3\% since 2019; in 2023, 16~ha against 1,390~ha). So almost all Texcoco maize follows maize. The rest
+2009, and under 3\% since 2019; 2023's maize, for example, had 21~ha of 2022 barley and faba bean against 1,390~ha). So almost all Texcoco maize follows maize. The rest
 of the area is assumed to follow maize too: SIAP has no field histories, and other preceding crops (oats, for
 example) are not simulated. Barley and faba bean are averaged over all rotations and phases, since SIAP cannot tell
 what they follow. This is \code{farm_tool.simulated_like_siap}, used by the calibration and by \code{farm_gap} in the
@@ -203,7 +203,7 @@ SIAP (observed) & 2.56 & 1.78 & 1.94 & & \\
 \bottomrule
 \end{tabular}
 \caption{One-at-a-time sensitivity: mean simulated yield 2006--2021 (t/ha) over the years with SIAP data, maize
-weighted by SIAP areas.}
+weighted by SIAP areas. Saved by \code{--sensitivity} as \code{sensitivity.csv}.}
 \label{tab:sens}
 \end{table}
 
@@ -305,13 +305,18 @@ faba bean June 16). A season ends at maturity, at the first frost, or on Februar
 \paragraph{Photosynthesis.} In WOFOST 8.1 the maximum CO\(_2\) uptake of a leaf depends on its nitrogen content:
 \(A_{\max} = \text{CO2 factor} \times \text{temperature factor} \times \min(\mathrm{AMAX\_REF},\
 \mathrm{AMAX\_SLP}\cdot \mathrm{SLN})\), and EFF is the light-use efficiency of a leaf in dim light. Scaling all
-three by \(p\) scales each leaf's CO\(_2\) uptake, and so the crop's daily sugar production, by \(p\) (except where
-\(A_{\max}\) falls below 2~kg/ha/h, where the model holds it at 2). Everything downstream (leaf growth, roots, grain,
-N demand) responds to it, which is why this works better than multiplying the final yield.
+three by \(p\) scales each leaf's CO\(_2\) uptake, and so the crop's daily sugar production, by \(p\). (The scaling is
+exact while the scaled \(A_{\max}\) stays above 2~kg/ha/h. PCSE's light-response curve divides by
+\(\max(2, A_{\max})\), so for leaves with very little nitrogen the reduction is slightly stronger: 0.456 instead of
+0.47 in one check.) Maintenance respiration is not scaled, so yield falls faster than \(p\); extrapolating the grid, maize
+yield would reach zero near \(p \approx 0.3\). Everything downstream (leaf growth, roots, grain, N demand) responds to it, which is why
+this works better than multiplying the final yield.
 
 \paragraph{Nitrogen.} Each fertilizer dose of \(F\) kg N/ha makes \(f \cdot F\) available to the crop; the rest is
 lost. The soil also releases \(m \times 12{,}709\) kg N/ha (IGBP total N in 0--100 cm) per season, spread evenly over
-the first 150 days from March 1. With the defaults that is \(0.005 \times 12{,}709 \approx 64\) kg.
+the first 150 days from March 1. With the defaults that is \(0.005 \times 12{,}709 \approx 64\) kg. The simulator caps
+this release at 100 kg N/ha per season, the valid range of the PCSE parameter it feeds (\code{NSOILBASE}); any
+\(m\) above 0.79\% gives 100 kg.
 
 \paragraph{The fertilizer-trial constraint.} SIAP tells us how much a field yields, not where its nitrogen came from.
 The first version of the calibration lowered maize yields by cutting nitrogen (fertilizer recovery 0.2 and half the
@@ -325,6 +330,40 @@ run without fertilizer, and only those whose continuous-maize ratio
 \end{equation}
 is within 0.1 of 0.93 are eligible (\code{within_trial}). The trial is one research-station experiment, so applying it
 to the whole municipality is an assumption; the tolerance of 0.1 reflects that.
+
+\paragraph{Can the model reproduce the trial itself?} The constraint uses only the trial's \emph{ratio}. To check the
+absolute yields, we ran continuous maize with and without fertilizer at station-like settings
+(\code{python -m src.crop_models.calibration --station-check}):
+\begin{center}\small
+\begin{tabular}{rrrrrr}
+\toprule
+Phenology & Photosynthesis & Soil N (kg/ha per season) & Unfertilized & Fertilized & Ratio \\
+\midrule
+\multicolumn{3}{l}{\textbf{Texcoco trial}} & \textbf{5.2} & \textbf{5.6} & \textbf{0.93} \\
+\(\times 1\) & \(\times 1\) & 64 (default) & 1.92 & 6.48 & 0.30 \\
+\(\times 1\) & \(\times 1\) & 100 (cap) & 3.96 & 8.37 & 0.47 \\
+\(\times 0.8\) & \(\times 1\) & 100 (cap) & 5.81 & 11.86 & 0.49 \\
+\(\times 0.8\) & \(\times 0.65\) & 100 (cap) & 5.55 & 6.32 & 0.88 \\
+\(\times 0.8\) & \(\times 0.6\) & 95 & 4.65 & 5.01 & 0.93 \\
+\(\times 0.8\) & \(\times 0.6\) & 64 (default) & 3.99 & 5.01 & 0.80 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Mean yields 2006--2021 (t/ha), fertilizer recovery 0.5. Three things follow:
+\begin{itemize}[nosep]
+  \item \textbf{At full photosynthesis no setting matches.} 5.2 t/ha without fertilizer is reachable only with the
+        shorter cycle and the most soil N the simulator allows, and then fertilized maize gives 11.9 t/ha, twice the
+        trial. Even station-managed maize sits well below WOFOST's European parameters.
+  \item \textbf{The trial is matched with photosynthesis \(\times 0.6\)--\(0.65\) and 95--100 kg of soil N per season.}
+        With the default 64 kg, unfertilized maize never exceeds 4.3 t/ha. So the station soil supplies about 50\%
+        more nitrogen than the model's default, and possibly more, since the match sits at the 100 kg cap.
+  \item \textbf{The farm-level constraint is weaker than it looks.} At the farm level (about 2.3 t/ha), calibrated maize
+        takes up only about 60--68 kg of N per season, about what the default soil releases on its own (64 kg). Every
+        candidate with low photosynthesis therefore passes, and the band even accepts no fertilizer response at all
+        (the chosen candidate has 0.995, against the trial's 0.93). What the constraint really rules out is explaining
+        the farm gap with nitrogen alone at full photosynthesis (ratio about 0.26). It does not show how much nitrogen
+        farm soils supply.
+\end{itemize}
 
 \paragraph{How the knobs reach the model.} The calibration is passed to \code{simulate_rotations(..., calibration=...)}
 as a dictionary. Crop parameters are applied as PCSE \emph{overrides} on the parameter provider of each season.
@@ -370,7 +409,8 @@ a time (``coordinate search''):
   \item \textbf{Maize} (88), with barley and faba bean at their fitted values: phenology \(\{0.8, 1\}\), photosynthesis
         \(\{0.35, 0.4, 0.45, 0.46, 0.47, 0.48, 0.49, 0.5, 0.6, 0.75, 1\}\), and four nitrogen supplies (fertilizer
         recovery, mineralization): (0.2, 0.25\%), the first version's choice; (0.5, 0.5\%), the defaults;
-        (0.5, 0.75\%); and (0.5, 1\%). Each maize candidate is also run without fertilizer.
+        (0.5, 0.75\%); and (0.5, 1\%), which the 100 kg cap turns into 100 rather than 127 kg/season. Each maize
+        candidate is also run without fertilizer.
 \end{enumerate}
 Maize goes last because it depends on its partners (it inherits the water and nitrogen they leave) more than they
 depend on it. To save time, the search only simulates the water- and N-limited level. The search takes about
@@ -455,7 +495,7 @@ Barley & default & 6.15 / 1.78 & 4.37 & \(-0.08\) & \(-22.8\) & 5.81 / 1.55 & 4.
        & persistence & 1.80 / 1.76 & 0.17 & 0.58 & 0.10 & 1.53 / 1.55 & 0.05 & 0.80 \\
 \midrule
 Faba bean & default & 9.79 / 1.94 & 7.87 & \(-0.11\) & \(-15.0\) & 9.59 / 1.17 & 8.45 & \(-9.9\) \\
-          & calibrated & 1.75 / 1.94 & 0.61 & \(-0.17\) & \(-0.23\) & 1.78 / 1.17 & 0.62 & 0.20 \\
+          & calibrated & 1.75 / 1.94 & 0.61 & \(-0.17\) & \(-0.23\) & 1.78 / 1.17 & 0.62 & 0.19 \\
           & climatology & 1.94 / 1.94 & 0.49 & & 0 & 1.94 / 1.17 & 0.78 & 0 \\
           & persistence & 2.00 / 1.94 & 0.38 & 0.73 & 0.23 & 1.16 / 1.19 & 0.08 & 0.90 \\
 \bottomrule
@@ -482,7 +522,10 @@ and faba bean (holdout). Holdout correlations rest on four years and are not sho
         than the calibrated model for every crop. In the holdout, the calibrated model only edges out climatology for
         barley and faba bean, and persistence beats both by far: those SIAP series barely change from one year to the
         next. For maize, the calibrated model is worse than climatology in both periods (skill \(-0.53\) and
-        \(-0.29\)).
+        \(-0.29\)). With \(r = 0.11\), even the best possible rescaling \(a + b\,y^{\mathrm{sim}}\) fitted to the
+        observations would reach a skill of only \(1 - \sqrt{1 - r^2} = 0.006\): getting the level right cannot make the
+        model beat the average; the missing year-to-year pattern is what keeps it behind. In 2022--2025, 2023 alone
+        makes up 95\% of the maize squared error.
   \item \textbf{Year-to-year agreement is poor.} Calibrated maize has \(r = 0.11\) in the fit years. Its swings are
         about as large as the observed ones (standard deviation 0.88 vs 0.72 t/ha) but fall in the wrong years
         (Figure~\ref{fig:years}): it reproduces the 2011 loss but also invents losses in 2010, 2012 and 2020 and misses
@@ -552,16 +595,20 @@ tell which, so this needs field data on both fertilizer response and rotations.
 
 \section*{10. Limits you should know about}
 
-\paragraph{1. One trial decides the nitrogen split.} Without the trial constraint, the best maize candidate cut
-nitrogen instead (RMSE 0.87), with a no-fertilizer ratio of 0.26. The constraint rests on one research-station
-experiment, whose soil may be more fertile than the average farm field.
+\paragraph{1. One station trial decides the nitrogen split.} Without the trial constraint, the best maize candidate
+cut nitrogen instead (RMSE 0.87), with a no-fertilizer ratio of 0.26. With it, any low-photosynthesis candidate passes,
+because farm-level maize needs little nitrogen (Section~6). The trial itself is matched only with more soil N than the
+default (95--100 vs 64 kg per season), and the station's soil is likely more fertile than the average farm field. The
+model's no-fertilizer runs are also 16 straight seasons without fertilizer, harsher than a one- or two-season trial.
 
 \paragraph{2. Photosynthesis absorbs everything WOFOST does not simulate.} Weeds, pests, diseases, plant density and
 local varieties are all lumped into one number per crop. It gets the level right, but it is not a measurement of any
 of them.
 
 \paragraph{3. Phenology is not pinned by observations.} We have no observed flowering or maturity dates, so
-phenology was bounded by agronomic judgment rather than fitted to dates. Maize chose the shortest allowed cycle.
+phenology was bounded by agronomic judgment rather than fitted to dates. Maize chose the shortest allowed cycle, and
+several choices are near ties: faba bean's best three candidates have RMSE 0.606, 0.607 and 0.612, so its phenology is
+barely identified.
 
 \paragraph{4. The observations are coarse.} SIAP numbers are municipal estimates, often rounded (2.6, 2.4), and
 recent barley and faba bean figures describe 4--12 hectares (31 and 18~ha of barley in 2017 and 2018). Faba bean's
@@ -583,6 +630,8 @@ Everything is opt-in; nothing changes for existing commands. From the repository
 \begin{verbatim}
 # One-at-a-time diagnostics, Table 2 (about 2 min, fit years only)
 python -m src.crop_models.calibration --sensitivity
+# The fertilizer-trial check of Section 6 (about 1 min)
+python -m src.crop_models.calibration --station-check
 # The search (about 13 min on 8 cores); writes fit_history.csv and fitted_knobs.json
 python -m src.crop_models.calibration --fit
 # Calibrated baseline -> data/rotations_calibrated/ (other scenarios with --scenarios)
@@ -601,7 +650,8 @@ Files produced in \code{data/rotations_calibrated/}:
   \item \code{calibration.json}: the knobs, fit and holdout years, versions, weather date and the scores of
         Table~\ref{tab:results};
   \item \code{fit_history.csv} and \code{fitted_knobs.json}: every candidate tried in the search and the chosen knobs
-        (copy them into \code{CALIBRATED} after a refit).
+        (copy them into \code{CALIBRATED} after a refit);
+  \item \code{sensitivity.csv} and \code{station_check.csv}: Table~\ref{tab:sens} and the trial check of Section~6.
 \end{itemize}
 The farmer notebook still loads the default runs and rescales them with \code{farm_gap} factors. This compares the
 calibrated run with SIAP instead:

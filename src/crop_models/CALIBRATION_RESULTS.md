@@ -23,7 +23,7 @@ Second version, October 19, 2026 (Python 3.13.1, PCSE 6.0.13). The step-by-step 
 | Barley | calibrated | **1.84** / 1.78 | 0.25 | −0.03 | −0.37 | 1.55 / 1.55 | 0.21 | 0.08 |
 | Barley | SIAP mean (climatology) | 1.78 / 1.78 | **0.18** | | 0 | 1.78 / 1.55 | 0.23 | 0 |
 | Faba bean | default | 9.79 / 1.94 | 7.87 | −0.11 | −15.0 | 9.59 / 1.17 | 8.45 | −9.9 |
-| Faba bean | calibrated | **1.75** / 1.94 | 0.61 | −0.17 | −0.23 | 1.78 / 1.17 | 0.62 | 0.20 |
+| Faba bean | calibrated | **1.75** / 1.94 | 0.61 | −0.17 | −0.23 | 1.78 / 1.17 | 0.62 | 0.19 |
 | Faba bean | SIAP mean (climatology) | 1.94 / 1.94 | **0.49** | | 0 | 1.94 / 1.17 | 0.78 | 0 |
 
 Skill is 1 − RMSE / RMSE(climatology); above 0 beats the SIAP average.
@@ -39,7 +39,7 @@ Persistence (last year's SIAP yield) has these RMSEs:
 What the results say:
 - **The level is fixed.** The calibrated means are within 0.06–0.25 t/ha of SIAP in the fit years. The `farm_gap` factors go from 0.42 / 0.28 / 0.18 to 1.14 / 0.98 / 1.01.
 - **It doesn't beat the SIAP average year by year.** Climatology wins in the fit years for every crop and in the holdout for maize. Persistence beats everything for barley and faba bean, whose SIAP series barely change.
-- **Year pattern:** calibrated maize swings about as much as SIAP (SD 0.88 vs 0.72 t/ha) but in the wrong years (r 0.11). Faba bean is too steady (0.23 vs 0.51) and misses SIAP's decline over time.
+- **Year pattern:** calibrated maize swings about as much as SIAP (SD 0.88 vs 0.72 t/ha) but in the wrong years (r 0.11). With r = 0.11, even the best rescaling a + b·sim could only reach skill 1 − √(1 − r²) = 0.006, so the missing year pattern, not the level, keeps maize behind the average. In the holdout, 2023 alone is 95% of the maize squared error. Faba bean is too steady (0.23 vs 0.51) and misses SIAP's decline over time.
 - **Use:** calibrated runs give realistic levels for scenarios, not forecasts.
 
 ## Fitted knobs (`CALIBRATED`)
@@ -49,12 +49,30 @@ What the results say:
 | Maize | 0.8 | 0.47 | 0.5 (default) |
 | Barley | 0.9 | 0.475 | 0.5 (default) |
 | Faba bean | 0.9 | 0.475 | 0.5 (default) |
-| Site | | | Mineralization 0.5% of soil N per season (default) |
+| Site | | | Mineralization 0.5% of soil N per season (default, 64 kg N/ha) |
+
+Soil N release is capped at 100 kg/season (PCSE's valid range for `NSOILBASE`), so any mineralization above 0.79% gives 100 kg; the grid's "1%" option is really 100 kg, not 127.
 
 **The fertilizer-trial constraint:**
 - **The trial:** at INIFAP Texcoco, maize gave 5.2 t/ha unfertilized vs 5.6 t/ha with 160 kg N/ha (Alonso-Sánchez et al. 2023).
 - **The rule:** maize candidates must keep their no-fertilizer / fertilized ratio within 0.1 of 0.93. 56 of the 88 passed, and the chosen one has 0.995.
 - **What it rules out:** the first calibration cut nitrogen instead, giving a ratio of 0.12. Without the constraint the best candidate still cuts nitrogen (RMSE 0.87, ratio 0.26).
+- **What it doesn't show:** at the farm level (about 2.3 t/ha), calibrated maize takes up only about 60–68 kg N/season, about what the default soil releases alone (64 kg). Any low-photosynthesis candidate therefore passes, and the band even accepts no fertilizer response (0.995 vs the trial's 0.93). The constraint rules out a nitrogen-only explanation of the farm gap; it doesn't tell how much N farm soils supply.
+
+**Can the model reproduce the trial itself?** Continuous maize, 2006–2021 means, fertilizer recovery 0.5 (`--station-check`, saved as `station_check.csv`):
+
+| Phenology | Photosynthesis | Soil N (kg/season) | Unfertilized | Fertilized | Ratio |
+|---|---:|---:|---:|---:|---:|
+| **Texcoco trial** | | | **5.2** | **5.6** | **0.93** |
+| ×1 | ×1 | 64 (default) | 1.92 | 6.48 | 0.30 |
+| ×1 | ×1 | 100 (cap) | 3.96 | 8.37 | 0.47 |
+| ×0.8 | ×1 | 100 (cap) | 5.81 | 11.86 | 0.49 |
+| ×0.8 | ×0.65 | 100 (cap) | 5.55 | 6.32 | 0.88 |
+| ×0.8 | ×0.6 | 95 | 4.65 | 5.01 | 0.93 |
+| ×0.8 | ×0.6 | 64 (default) | 3.99 | 5.01 | 0.80 |
+
+- **At full photosynthesis nothing matches.** Reaching 5.2 t/ha unfertilized needs the most soil N the simulator allows, and then fertilized maize gives 11.9, twice the trial.
+- **The trial is matched at photosynthesis ×0.6–0.65 with 95–100 kg of soil N.** So the station soil supplies about 50% more N than the model's default (maybe more: the match sits at the cap), and even station maize is about 40% below WOFOST's European photosynthesis.
 
 **Grid edges:**
 - Maize phenology sits on the agronomic lower bound of ×0.8.
@@ -93,9 +111,9 @@ An independent review found these problems in version 1, each now fixed:
 
 ## Caveats
 
-- **One station trial decides the nitrogen split.** Farms may be more N-limited than the station.
+- **One station trial decides the nitrogen split,** and at farm-level yields it barely constrains anything (see above). The station soil is likely more fertile than the average farm field, and the model's no-fertilizer runs are 16 straight unfertilized seasons, harsher than a one- or two-season trial.
 - **Photosynthesis is a lumped knob.** It isn't a measurement of any one loss.
-- **Phenology is bounded by judgment.** There are no observed flowering or maturity dates.
+- **Phenology is bounded by judgment.** There are no observed flowering or maturity dates, and some choices are near ties: faba bean's best three candidates have RMSE 0.606, 0.607 and 0.612.
 - **The observations are coarse.** SIAP is municipal and often rounded. Recent barley and faba bean areas are 4–12 ha (31 and 18 ha of barley in 2017–2018).
 - **One weather cell and one soil point** represent the whole municipality.
 - **The weather will change.** PCSE re-downloads POWER weather after 90 days (cache dated 2026-10-12), so saved runs can't be reproduced exactly after about 2027-01-10. `calibration.json` records the weather date, git commit and PCSE version.
@@ -103,7 +121,8 @@ An independent review found these problems in version 1, each now fixed:
 ## Reproduce
 
 ```bash
-python -m src.crop_models.calibration --sensitivity     # one-at-a-time diagnostics, fit years (~2 min)
+python -m src.crop_models.calibration --sensitivity     # one-at-a-time diagnostics, fit years (~2 min) -> sensitivity.csv
+python -m src.crop_models.calibration --station-check   # the trial check above (~1 min) -> station_check.csv
 python -m src.crop_models.calibration --fit             # refit (~13 min, 8 cores); writes fit_history.csv, fitted_knobs.json
 python -m src.crop_models.calibration --simulate        # calibrated baseline -> data/rotations_calibrated/
 python docs/technical_report/make_calibration_figures.py
