@@ -47,6 +47,8 @@ FILL_VALUE = -9999.0
 WORKERS = 16  # parallel OPeNDAP requests
 RETRIES = 3   # OPeNDAP attempts per granule before the HDF5 fallback
 TIMEOUT = 60
+GRID_ROWS = 1624
+GRID_COLS = 3856
 
 _, DEFAULT_LAT, DEFAULT_LON = SAMPLE_SITES[0]
 
@@ -87,7 +89,8 @@ def test_connection():
 
     elapsed = time.perf_counter() - started
     collection = collections[0]
-    print(f"[OK] CMR found {collection.concept_id}: {collection['umm']['EntryTitle']} ({elapsed:.2f}s)")
+    concept_id = collection.concept_id() if callable(collection.concept_id) else collection.concept_id
+    print(f"[OK] CMR found {concept_id}: {collection['umm']['EntryTitle']} ({elapsed:.2f}s)")
     return True
 
 
@@ -105,11 +108,12 @@ def granule_table(granules):
     rows = []
     for granule in granules:
         timestamp, build = granule_info(granule)
+        size = granule.size() if callable(granule.size) else granule.size
         rows.append({
             "datetime": timestamp,
             "granule": granule["umm"]["GranuleUR"],
             "build": build,
-            "size_mb": round(granule.size, 1),
+            "size_mb": round(size, 1),
         })
     return pd.DataFrame(rows).set_index("datetime")
 
@@ -127,19 +131,72 @@ def opendap_url(granule):
     return None
 
 
+def _opendap_ascii_values(text, variable):
+    """Parse a DAP2 ASCII response for a top-level one- or two-dimensional coordinate array."""
+    values = []
+    pattern = re.compile(rf"^{re.escape(variable)}\[\d+\],\s*(.*)$")
+    for line in text.splitlines():
+        match = pattern.match(line.strip())
+        if match:
+            values.extend(float(value.strip()) for value in match.group(1).split(",") if value.strip())
+    if not values:
+        raise ValueError(f"OPeNDAP response contains no values for {variable}")
+    return np.asarray(values, dtype=float)
+
+
+def _opendap_units(text, variables):
+    """Read variable units from a DAP2 DAS response."""
+    units = {}
+    for name in variables:
+        block = re.search(
+            rf"(?ms)^\s*/Geophysical_Data/{re.escape(name)}\s*\{{(.*?)^\s*\}}",
+            text,
+        )
+        unit = re.search(r'String\s+units\s+"([^"]*)";', block.group(1)) if block else None
+        units[name] = unit.group(1) if unit else ""
+    return units
+
+
 def locate_pixel(granule, lat, lon, variables=VARIABLES):
     """Find the grid cell nearest to (lat, lon) and the variables' units by streaming one granule.
 
-    The grid is identical in every granule, so this runs once per request (~6 s).
+    The grid is identical in every granule. Use OPeNDAP for its small coordinate vectors and
+    metadata rather than opening the ~140 MB global HDF5 file. Fall back to HDF5 if OPeNDAP
+    doesn't expose those requests.
     Returns (row, col, (pixel_lat, pixel_lon), units dict). Raises ValueError for unknown variables.
     """
+    url = opendap_url(granule)
+    if url:
+        session = earthaccess.get_requests_https_session()
+        try:
+            coordinates = session.get(
+                f"{url}.ascii?cell_lat[0:{GRID_ROWS - 1}][0],cell_lon[0][0:{GRID_COLS - 1}]",
+                timeout=TIMEOUT,
+            )
+            coordinates.raise_for_status()
+            lats = _opendap_ascii_values(coordinates.text, "cell_lat")
+            lons = _opendap_ascii_values(coordinates.text, "cell_lon")
+            if len(lats) != GRID_ROWS or len(lons) != GRID_COLS:
+                raise ValueError(f"Unexpected SMAP coordinate lengths: {len(lats)} latitudes, {len(lons)} longitudes")
+
+            das = session.get(f"{url}.das", timeout=TIMEOUT)
+            das.raise_for_status()
+            available = re.findall(r"(?m)^\s*/Geophysical_Data/([A-Za-z0-9_]+)\s*\{", das.text)
+            unknown = [name for name in variables if name not in available]
+            if unknown:
+                raise ValueError(f"Unknown SMAP variable(s): {', '.join(unknown)}. Available: {', '.join(available)}")
+            units = _opendap_units(das.text, variables)
+            row, col = nearest_index(lats, lat), nearest_index(lons, lon)
+            return row, col, (float(lats[row]), float(lons[col])), units
+        except (requests.RequestException, ValueError):
+            pass
+
     with h5py.File(earthaccess.open([h5_url(granule)])[0], "r") as h5:
         # EASE-Grid 2.0 is cylindrical: latitude is constant along rows and
         # longitude along columns, so 1-D slices are enough to locate the pixel.
         lats = h5["cell_lat"][:, 0]
         lons = h5["cell_lon"][0, :]
         row, col = nearest_index(lats, lat), nearest_index(lons, lon)
-
         group = h5["Geophysical_Data"]
         unknown = [name for name in variables if name not in group]
         if unknown:

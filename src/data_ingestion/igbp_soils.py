@@ -63,9 +63,13 @@ def search_granules():
 
 def granule_table(granules):
     """Granule metadata as a DataFrame (what we can show without a login)."""
-    rows = [{"layer": LAYERS.get(layer_key(g), layer_key(g)),
-             "granule": g["umm"]["GranuleUR"],
-             "size_mb": round(g.size, 1)} for g in granules]
+    rows = []
+    for granule in granules:
+        size = granule.size() if callable(granule.size) else granule.size
+        key = layer_key(granule)
+        rows.append({"layer": LAYERS.get(key, key),
+                     "granule": granule["umm"]["GranuleUR"],
+                     "size_mb": round(size, 1)})
     return pd.DataFrame(rows).set_index("layer")
 
 
