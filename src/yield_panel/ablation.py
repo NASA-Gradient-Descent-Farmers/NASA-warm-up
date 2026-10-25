@@ -61,14 +61,17 @@ def feature_sets(columns):
     return {k: v for k, v in sets.items() if v[0]}
 
 
-def evaluate_sets(data, crop, target, sets, test_years, min_train_years=8, draws=500):
+def evaluate_sets(data, crop, target, sets, test_years, min_train_years=8, draws=500, static=None):
+    """Score each feature set's fe and gbm models against the bar. `static` defaults to STATIC (columns that exist)."""
     rows, preds_all = [], {}
+    base_static = [c for c in (STATIC if static is None else static) if c in data.columns]
     for name, (weather, extra_static) in sets.items():
         d, feats = pm.add_terms(data, weather)
+        gbm_static = base_static + [c for c in extra_static if c in data.columns]
         models = {
             "mean_trend": lambda: pm.FixedEffects(["year"], alpha=0.0),
             "fe": lambda: pm.FixedEffects(["year", *feats], alpha=float(len(feats))),
-            "gbm": lambda: pm.BoostedResidual(feats, STATIC + extra_static),
+            "gbm": lambda: pm.BoostedResidual(feats, gbm_static),
         }
         preds = pm.rolling_evaluation(d, target, models, test_years, min_train_years=min_train_years)
         table = pm.score(preds, models)

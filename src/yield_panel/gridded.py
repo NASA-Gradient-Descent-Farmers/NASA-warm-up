@@ -150,17 +150,15 @@ def imerg_day(session, url, bbox, retries=4):
     raise RuntimeError(f"IMERG {url}: {last!r}")
 
 
-def fetch_imerg(start, end, bbox, workers=8, directory=DATA_DIR / "imerg"):
-    """Daily IMERG over the box from `start` to `end` (dates), cached one .npz per year."""
+def imerg_years(start, end, bbox, workers=8, directory=DATA_DIR / "imerg"):
+    """Yield (days, cube, lat, lon) one year at a time, downloading and caching (.npz per year) as needed.
+
+    One year at a time keeps memory bounded: a national box is ~90 MB per year of IMERG.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    if not earthdata_login():
-        raise RuntimeError("Earthdata login failed: set EARTHDATA_TOKEN or ~/.netrc")
-    import earthaccess
-
-    session = earthaccess.get_requests_https_session()
     tag = "_".join(f"{v:g}" for v in bbox)
-    days_all, cubes, lat, lon = [], [], None, None
+    session = None
     for year in range(start.year, end.year + 1):
         path = directory / f"{year}_{tag}.npz"
         y0, y1 = max(start, date(year, 1, 1)), min(end, date(year, 12, 31))
@@ -168,10 +166,9 @@ def fetch_imerg(start, end, bbox, workers=8, directory=DATA_DIR / "imerg"):
         if path.exists():
             z = np.load(path)
             if len(z["days"]) == len(days):
-                days_all += list(pd.to_datetime(z["days"]).date)
-                cubes.append(z["precip"])
-                lat, lon = z["lat"], z["lon"]
+                yield pd.to_datetime(z["days"]), z["precip"], z["lat"], z["lon"]
                 continue
+        session = session or _session()
         urls = imerg_urls(y0, y1)
         missing = [d for d in days if d not in urls]
         if missing:
@@ -180,12 +177,18 @@ def fetch_imerg(start, end, bbox, workers=8, directory=DATA_DIR / "imerg"):
             results = list(pool.map(lambda d: imerg_day(session, urls[d][0], bbox), days))
         cube = np.stack([r[0] for r in results]).astype(np.float32)
         lat, lon = results[0][1], results[0][2]
+        del results
         late = np.array([urls[d][1] for d in days])
         np.savez_compressed(path, precip=cube, lat=lat, lon=lon, days=np.array([str(d) for d in days]), late_run=late)
-        days_all += days
-        cubes.append(cube)
         print(f"IMERG {year}: {len(days)} days ({int(late.sum())} from the Late Run)", flush=True)
-    return pd.to_datetime(days_all), np.concatenate(cubes), lat, lon
+        yield pd.to_datetime([str(d) for d in days]), cube, lat, lon
+
+
+def fetch_imerg(start, end, bbox, workers=8, directory=DATA_DIR / "imerg"):
+    """All years at once (fine for small boxes; use imerg_years + sample for large ones)."""
+    parts = list(imerg_years(start, end, bbox, workers, directory))
+    return (pd.DatetimeIndex(np.concatenate([p[0] for p in parts])), np.concatenate([p[1] for p in parts]),
+            parts[-1][2], parts[-1][3])
 
 
 # --- CHIRPS --------------------------------------------------------------------------------------
@@ -195,12 +198,18 @@ CHIRPS_URL = "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_daily/netcdf/
 
 def fetch_chirps(years, bbox, res="p05", directory=DATA_DIR / "chirps"):
     """Daily CHIRPS over the box, read with HTTP range requests (only the box's chunks are fetched)."""
+    parts = list(chirps_years(years, bbox, res, directory))
+    return (pd.DatetimeIndex(np.concatenate([p[0] for p in parts])), np.concatenate([p[1] for p in parts]),
+            parts[-1][2], parts[-1][3])
+
+
+def chirps_years(years, bbox, res="p05", directory=DATA_DIR / "chirps"):
+    """Yield (days, cube, lat, lon) one year at a time (a national box is ~340 MB per year at 0.05 deg)."""
     import fsspec
 
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     tag = "_".join(f"{v:g}" for v in bbox)
-    days_all, cubes, lat_out, lon_out = [], [], None, None
     for year in years:
         path = directory / f"{year}_{res}_{tag}.npz"
         if not path.exists():
@@ -219,11 +228,9 @@ def fetch_chirps(years, bbox, res="p05", directory=DATA_DIR / "chirps"):
             np.savez_compressed(path, precip=cube, lat=lat[iy.min():iy.max() + 1], lon=lon[ix.min():ix.max() + 1],
                                 days=np.array([str(d.date()) for d in days]))
             print(f"CHIRPS {year}: {len(days)} days", flush=True)
+            del cube
         z = np.load(path)
-        days_all += list(pd.to_datetime(z["days"]))
-        cubes.append(z["precip"])
-        lat_out, lon_out = z["lat"], z["lon"]
-    return pd.DatetimeIndex(days_all), np.concatenate(cubes), lat_out, lon_out
+        yield pd.to_datetime(z["days"]), z["precip"], z["lat"], z["lon"]
 
 
 # --- Shared Earthdata OPeNDAP helper -------------------------------------------------------------
@@ -380,7 +387,14 @@ SMAP_SHORT, SMAP_VERSION = "SPL4SMGP", "008"
 
 
 def fetch_smap(start, end, bbox, hour="13:30", workers=6, directory=DATA_DIR / "smap_box"):
-    """Daily snapshot (the `hour` UTC 3-hourly window) of root-zone and surface soil moisture over the box.
+    """All years at once (fine for small boxes; use smap_years + sample for large ones)."""
+    parts = list(smap_years(start, end, bbox, hour, workers, directory))
+    return (pd.DatetimeIndex(np.concatenate([p[0] for p in parts])), np.concatenate([p[1] for p in parts]),
+            np.concatenate([p[2] for p in parts]), parts[-1][3], parts[-1][4])
+
+
+def smap_years(start, end, bbox, hour="13:30", workers=6, directory=DATA_DIR / "smap_box"):
+    """Yield (days, rootzone, surface, lat, lon) per year: the `hour` UTC 3-hourly granule of each day.
 
     Soil moisture changes slowly, so one granule a day is enough for seasonal features. Cached per year.
     """
@@ -389,21 +403,18 @@ def fetch_smap(start, end, bbox, hour="13:30", workers=6, directory=DATA_DIR / "
 
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    session = _session()
+    session = None
     tag = "_".join(f"{v:g}" for v in bbox)
     grid_path = directory / f"grid_{tag}.npz"
-    days_all, roots, surfs = [], [], []
     rows = cols = lat = lon = None
 
     for year in range(start.year, end.year + 1):
         path = directory / f"{year}_{tag}.npz"
         if path.exists():
             z = np.load(path)
-            days_all += list(pd.to_datetime(z["days"]))
-            roots.append(z["rootzone"])
-            surfs.append(z["surface"])
-            lat, lon = z["lat"], z["lon"]
+            yield pd.to_datetime(z["days"]), z["rootzone"], z["surface"], z["lat"], z["lon"]
             continue
+        session = session or _session()
         y0, y1 = max(start, date(year, 1, 1)), min(end, date(year, 12, 31))
         granules = earthaccess.search_data(short_name=SMAP_SHORT, version=SMAP_VERSION, temporal=(str(y0), str(y1)))
         granules = [g for g in smap_point.latest_builds(granules)
@@ -440,12 +451,10 @@ def fetch_smap(start, end, bbox, hour="13:30", workers=6, directory=DATA_DIR / "
             results = sorted(pool.map(one, granules), key=lambda r: r[0])
         days = [pd.Timestamp(r[0].date()) for r in results]
         rz, sf = np.stack([r[1] for r in results]), np.stack([r[2] for r in results])
+        del results
         np.savez_compressed(path, rootzone=rz, surface=sf, lat=lat, lon=lon, days=np.array([str(d.date()) for d in days]))
         print(f"SMAP {year}: {len(days)} days", flush=True)
-        days_all += days
-        roots.append(rz)
-        surfs.append(sf)
-    return pd.DatetimeIndex(days_all), np.concatenate(roots), np.concatenate(surfs), lat, lon
+        yield pd.DatetimeIndex(days), rz, sf, lat, lon
 
 
 def smap_features(days, rootzone, surface, years):

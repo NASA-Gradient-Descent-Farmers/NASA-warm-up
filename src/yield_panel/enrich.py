@@ -26,17 +26,24 @@ from src.yield_panel import gridded
 UNIT = ["state_id", "mun_id"]
 
 
-def rain_block(municipalities, years, source):
+def rain_block(municipalities, years, source, bbox=None):
+    """Season rain features per municipality-year. Gridded data are read one year at a time and reduced
+    to municipality series straight away, so memory stays bounded even for a national box."""
     start, end = min(years) - 1, max(years)
-    bbox = gridded.bbox_for(municipalities)
+    bbox = bbox or gridded.bbox_for(municipalities)
     if source == "imerg":
-        days, cube, lat, lon = gridded.fetch_imerg(date(start, 11, 1), date(end, 12, 31), bbox)
-        radius = 15
+        chunks, radius = gridded.imerg_years(date(start, 11, 1), date(end, 12, 31), bbox), 15
     else:
-        days, cube, lat, lon = gridded.fetch_chirps(range(start, end + 1), bbox)
-        radius = 10
-    pts, _ = gridded.sample(cube, lat, lon, list(zip(municipalities.lat, municipalities.lon)), radius)
-    return gridded.daily_to_features(days, pts, municipalities, years, source)
+        chunks, radius = gridded.chirps_years(range(start, end + 1), bbox), 10
+    points = list(zip(municipalities.lat, municipalities.lon))
+    days, pts = [], []
+    for d, cube, lat, lon in chunks:
+        p, _ = gridded.sample(cube, lat, lon, points, radius)
+        days.append(d)
+        pts.append(p)
+        del cube
+    return gridded.daily_to_features(pd.DatetimeIndex(np.concatenate(days)), np.concatenate(pts), municipalities,
+                                     years, source)
 
 
 def vegetation_block(municipalities, years):
@@ -57,11 +64,14 @@ def vegetation_block(municipalities, years):
 
 def smap_block(municipalities, years):
     bbox = gridded.bbox_for(municipalities)
-    days, rz, sf, lat, lon = gridded.fetch_smap(date(2015, 4, 1), date(max(years), 12, 31), bbox)
     points = list(zip(municipalities.lat, municipalities.lon))
-    rz_pts, _ = gridded.sample(rz, lat, lon, points, 10)
-    sf_pts, _ = gridded.sample(sf, lat, lon, points, 10)
-    return gridded.points_to_features(days, rz_pts, sf_pts, municipalities, [y for y in years if y >= 2015])
+    days, rzs, sfs = [], [], []
+    for d, rz, sf, lat, lon in gridded.smap_years(date(2015, 4, 1), date(max(years), 12, 31), bbox):
+        days.append(d)
+        rzs.append(gridded.sample(rz, lat, lon, points, 10)[0])
+        sfs.append(gridded.sample(sf, lat, lon, points, 10)[0])
+    return gridded.points_to_features(pd.DatetimeIndex(np.concatenate(days)), np.concatenate(rzs), np.concatenate(sfs),
+                                      municipalities, [y for y in years if y >= 2015])
 
 
 def igbp_block(municipalities):

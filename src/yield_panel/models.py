@@ -177,11 +177,20 @@ def bootstrap_skill(predictions, model, bar="mean_trend", draws=2000, seed=0):
     """
     rng = np.random.default_rng(seed)
     years = predictions["year"].unique()
-    groups = {y: g for y, g in predictions.groupby("year")}
+    # Per-year sums of squared errors and row counts: a resample's RMSE is sqrt(sum SSE / sum n) over the drawn
+    # years, identical to recomputing it on the concatenated rows, without building a table per draw.
+    err = predictions.assign(_bar=(predictions[bar] - predictions["observed"]) ** 2,
+                             _mod=(predictions[model] - predictions["observed"]) ** 2)
+    per_year = err.groupby("year")[["_bar", "_mod"]].agg(["sum", "size"])
+    sse_bar = per_year[("_bar", "sum")].reindex(years).to_numpy()
+    sse_mod = per_year[("_mod", "sum")].reindex(years).to_numpy()
+    n = per_year[("_bar", "size")].reindex(years).to_numpy()
+    position = {y: i for i, y in enumerate(years)}
     diffs = []
     for _ in range(draws):
-        sample = pd.concat([groups[y] for y in rng.choice(years, len(years))])
-        diffs.append(rmse(sample[bar] - sample["observed"]) - rmse(sample[model] - sample["observed"]))
+        idx = np.array([position[y] for y in rng.choice(years, len(years))])
+        count = n[idx].sum()
+        diffs.append(np.sqrt(sse_bar[idx].sum() / count) - np.sqrt(sse_mod[idx].sum() / count))
     point = rmse(predictions[bar] - predictions["observed"]) - rmse(predictions[model] - predictions["observed"])
     low, high = np.percentile(diffs, [2.5, 97.5])
     return {"model": model, "rmse_gain": point, "ci_low": low, "ci_high": high, "years": len(years)}
