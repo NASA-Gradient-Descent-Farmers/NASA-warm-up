@@ -10,6 +10,7 @@ Every feature is known by April 30 of the season's year, before rainfed sowing (
 | `last_season` | the previous season's weather (rain totals, canicula rain, dry spell, onset, late rain) | NASA POWER |
 | `last_outcome` | the previous season's yield and failure rate (part persistence, part SIAP reporting habits) | SIAP |
 | `preseason_ndvi` | Mar-Apr NDVI and EVI (2003 on) | MODIS |
+| `s2s` | April-issued GEOS-S2S forecast anomalies for May-Oct rain (by period) and temperature | NASA GMAO via NMME / IRI |
 
 The target is still the season's yield or failure rate, scored against the same average + trend bar.
 """
@@ -147,6 +148,7 @@ def feature_groups(columns):
         "last_season": have(LAST_SEASON),
         "last_outcome": have(LAST_OUTCOME),
         "preseason_ndvi": have(PRESEASON_NDVI),
+        "s2s": [c for c in columns if c.startswith("s2s_")],
     }
 
 
@@ -164,6 +166,10 @@ def planning_sets(columns, with_ndvi=True):
     }
     if with_ndvi and g["preseason_ndvi"]:
         sets["all + preseason ndvi"] = sets["all (incl. last outcome)"] + g["preseason_ndvi"]
+    if g["s2s"]:
+        sets["s2s forecast"] = g["s2s"]
+        sets["s2s + ocean x place + preseason + last season weather"] = g["s2s"] + sets["ocean x place + preseason + last season weather"]
+        sets["all + s2s"] = sets["all (incl. last outcome)"] + g["s2s"]
     return {k: (v, []) for k, v in sets.items() if v}
 
 

@@ -36,6 +36,8 @@ TABLES = {  # name -> (source path, description)
                                   "NASA POWER season and pre-season features per municipality-year, 1982-2025"),
     "chirps_municipal_1999_2025": (PANEL_DIR / "chirps_municipal_1999_2025.csv",
                                    "CHIRPS season rain features per municipality-year, 1999-2025"),
+    "s2s_municipal_1981_2026": (PANEL_DIR / "s2s_municipal_1981_2026.csv",
+                                "NASA GEOS-S2S April-issued forecast anomalies per municipality-year, 1981-2026"),
     "planning_municipal": (PANEL_DIR / "planning" / "municipal.parquet", "Planning-model panel, municipalities 2003-2025"),
     "planning_district": (PANEL_DIR / "planning" / "district.parquet", "Planning-model panel, districts 1999-2025"),
     "planning_state": (PANEL_DIR / "planning" / "state.parquet", "Planning-model panel, states 1982-2025"),

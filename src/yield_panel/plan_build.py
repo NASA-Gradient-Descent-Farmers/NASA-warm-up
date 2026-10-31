@@ -147,6 +147,69 @@ def evaluate(crops=("maize", "bean", "sorghum"), draws=1000):
     print("EVALUATION DONE", flush=True)
 
 
+S2S_MUNICIPAL = Path("data/yield_panel/s2s_municipal_1981_2026.csv")
+S2S_SETS = ["last season outcome", "all (incl. last outcome)", "ocean x place + preseason + last season weather",
+            "s2s forecast", "s2s + ocean x place + preseason + last season weather", "all + s2s"]
+
+
+def add_s2s():
+    """Add April-issued GEOS-S2S forecast anomalies to the three planning panels (municipal, district, state)."""
+    from src.yield_panel import seasonal
+
+    national, feats, munis = municipal_inputs()
+    if not S2S_MUNICIPAL.exists():
+        seasonal.municipal_features(munis[[*UNIT, "lat", "lon"]]).to_csv(S2S_MUNICIPAL, index=False)
+    s2s = pd.read_csv(S2S_MUNICIPAL)
+    cols = [c for c in s2s.columns if c.startswith("s2s_")]
+    ddr = ablation.district_map(years=range(2003, 2026))
+    weights = national.groupby(["crop", *UNIT])["sown_ha"].mean().rename("weight").reset_index().merge(ddr, on=UNIT)
+    for level, keys in [("municipal", None), ("district", ["state_id", "ddr"]), ("state", ["state_id"])]:
+        p = pd.read_parquet(OUT / f"{level}.parquet")
+        p = p.drop(columns=[c for c in p.columns if c.startswith("s2s_")])
+        if keys is None:
+            p = p.merge(s2s, on=[*UNIT, "year"], how="left")
+        else:
+            agg = historic.area_weighted_features(s2s, weights, keys, cols)
+            p = p.merge(agg, on=["crop", *keys, "year"], how="left")
+        p.to_parquet(OUT / f"{level}.parquet", index=False)
+        print(level, "rows with s2s:", round(p[cols[0]].notna().mean(), 3), flush=True)
+
+
+def evaluate_s2s(crops=("maize", "bean", "sorghum"), draws=1000):
+    """Seasonal-forecast sets next to the earlier planning sets, all on the same rows."""
+    results, predictions = [], []
+    for level, (test_years, min_train) in DESIGNS.items():
+        data = pd.read_parquet(OUT / f"{level}.parquet")
+        all_sets = planning.planning_sets(data.columns, with_ndvi=False)
+        sets = {k: all_sets[k] for k in S2S_SETS if k in all_sets}
+        complete = data.dropna(subset=sorted(set().union(*(w for w, _ in sets.values()))))
+        print(f"{level}: {len(complete)} rows complete", flush=True)
+        for crop in crops:
+            for target in ["yield_t_ha", "failure_rate"]:
+                t, preds = ablation.evaluate_sets(complete[complete["crop"] == crop], crop, target, sets, test_years,
+                                                  min_train, draws, static=STATIC)
+                results.append(t.assign(level=level))
+                predictions += [p.assign(level=level, crop=crop, target=target, features=n) for n, p in preds.items()]
+                print(t[["crop", "target", "features", "model", "skill", "gain_ci_low", "gain_ci_high"]].round(3).to_string(index=False), flush=True)
+    pd.concat(results).to_csv(OUT / "results_planning_s2s.csv", index=False)
+    pd.concat(predictions).to_parquet(OUT / "predictions_planning_s2s.parquet", index=False)
+    print("S2S EVALUATION DONE", flush=True)
+
+
+def load_results():
+    """All planning results and predictions; where a set was rerun with the seasonal forecasts, the rerun wins."""
+    results = pd.read_csv(OUT / "results_planning.csv")
+    preds = pd.read_parquet(OUT / "predictions_planning.parquet")
+    if (OUT / "results_planning_s2s.csv").exists():
+        r2 = pd.read_csv(OUT / "results_planning_s2s.csv")
+        p2 = pd.read_parquet(OUT / "predictions_planning_s2s.parquet")
+        key = ["level", "crop", "target", "features"]
+        rerun = r2[key].drop_duplicates()
+        results = pd.concat([results.merge(rerun, on=key, how="left", indicator=True).query("_merge == 'left_only'").drop(columns="_merge"), r2])
+        preds = pd.concat([preds.merge(rerun, on=key, how="left", indicator=True).query("_merge == 'left_only'").drop(columns="_merge"), p2])
+    return results, preds
+
+
 def preseason_now(year, munis, workers=4):
     """Pre-season features for `year` (Nov of year-1 to Apr of year) per municipality, from POWER."""
     from concurrent.futures import ThreadPoolExecutor
@@ -186,8 +249,7 @@ def outlook(year=2026, crops=("maize", "bean", "sorghum"), level="district", thr
     """Pre-season outlook for `year` from what was known by April 30: per unit, expected failure rate and yield
     with 10-90% ranges from the model's own out-of-sample errors, next to the average + trend bar."""
     history = pd.read_parquet(OUT / f"{level}.parquet")
-    results = pd.read_csv(OUT / "results_planning.csv")
-    preds = pd.read_parquet(OUT / "predictions_planning.parquet")
+    results, preds = load_results()
     national, feats, munis = municipal_inputs()
     pre = preseason_now(year, munis[[*UNIT, "lat", "lon"]])
     ddr = ablation.district_map(years=range(2003, 2026))
@@ -239,7 +301,7 @@ def outlook(year=2026, crops=("maize", "bean", "sorghum"), level="district", thr
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("step", choices=["build", "evaluate", "outlook"])
+    parser.add_argument("step", choices=["build", "evaluate", "add_s2s", "evaluate_s2s", "outlook"])
     parser.add_argument("--draws", type=int, default=1000)
     parser.add_argument("--year", type=int, default=2026)
     args = parser.parse_args()
@@ -247,6 +309,10 @@ def main():
         build()
     elif args.step == "evaluate":
         evaluate(draws=args.draws)
+    elif args.step == "add_s2s":
+        add_s2s()
+    elif args.step == "evaluate_s2s":
+        evaluate_s2s(draws=args.draws)
     else:
         print(outlook(args.year).groupby(["crop", "target"]).size())
 

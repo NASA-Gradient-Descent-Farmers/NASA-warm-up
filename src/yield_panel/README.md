@@ -96,11 +96,13 @@ District and state features are sown-area-weighted averages of municipality feat
 
 ## Planning model (`planning.py`, `plan_build.py`)
 
-Only information available by April 30: ocean indices (ONI, Nino 3.4, tropical North Atlantic, PDO from NOAA; AMO left out because its series lags), the indices interacted with latitude, longitude, altitude and typical rain, pre-season POWER weather (Nov-Apr rain, Mar-Apr rain, temperature, humidity), last season's weather, last season's yield and failure, and Mar-Apr NDVI.
+Only information available by April 30: ocean indices (ONI, Nino 3.4, tropical North Atlantic, PDO from NOAA; AMO left out because its series lags), the indices interacted with latitude, longitude, altitude and typical rain, NASA GEOS-S2S seasonal forecasts issued in April (`seasonal.py`), pre-season POWER weather (Nov-Apr rain, Mar-Apr rain, temperature, humidity), last season's weather, last season's yield and failure, and Mar-Apr NDVI.
 
 ```bash
 python -m src.yield_panel.plan_build build       # municipal 2003-2025, district 1999-2025, state 1982-2025
 python -m src.yield_panel.plan_build evaluate    # ~40 min with OMP_NUM_THREADS=1 on 2 cores
+python -m src.yield_panel.plan_build add_s2s     # adds GEOS-S2S forecast anomalies (downloads ~80 MB from the IRI Data Library)
+python -m src.yield_panel.plan_build evaluate_s2s
 python -m src.yield_panel.plan_build outlook     # 2026 district outlook (fetches Nov 2025-Apr 2026 POWER)
 ```
 
@@ -108,10 +110,11 @@ Findings (states tested on 31 years, districts 16, municipalities 12):
 
 - **Ocean indices never beat the bar**, for any crop, target or level, even with 31 test years. The national failure years do cluster in La Nina springs (2009, 2011), but this does not translate into skill one year ahead at state or district level.
 - **Pre-season weather and NDVI do not help either**, except pre-season weather for state maize yield (+9%).
+- **NASA GEOS-S2S seasonal forecasts do not help.** The April rain forecast barely tracks the season's rain in Mexico (year-to-year correlation within municipalities 0.05 against POWER and CHIRPS; negative in 42% of municipalities); the temperature forecast does (0.48 against season Tmax). In the ablation the forecasts alone reach +5.7% for state maize yield (significant, like pre-season weather) and nothing elsewhere; adding them to the other sets changes nothing.
 - **Last season's yield predicts this season's yield**: maize +18-31%, bean +2-9%, sorghum +7-12%, significant at every level. The bar's straight-line trend misses slow shifts in yield level; part of this persistence is SIAP's own reporting.
 - **Nothing known before sowing predicts failure risk.** For failure, the honest pre-season answer is each unit's own history.
 
-`plan_build.outlook` therefore uses, for each crop and target, the most skilful planning set whose interval stayed above zero, and the bar when none did. For 2026 that means yield from last season's outcome (10-90% ranges narrower than the bar's: maize by ~23%, bean and sorghum by ~12%) and failure risk from history. NASA GEOS-S2S seasonal forecasts (in the NMME archive at the IRI Data Library) are the natural next input; the library now requires a free account.
+`plan_build.outlook` therefore uses, for each crop and target, the most skilful planning set whose interval stayed above zero, and the bar when none did. For 2026 that means yield from last season's outcome (10-90% ranges narrower than the bar's: maize by ~23%, bean and sorghum by ~12%) and failure risk from history. GEOS-S2S comes from the NMME archive at the IRI Data Library: April starts from the HINDCAST stream (1981-2016, 4 members) and the real-time FORECAST stream (2017 on, 10 members), ensemble means over a box around Mexico, as anomalies from the hindcast's 1991-2016 climatology per cell and lead. The library's sign-in covers its web pages, not data downloads.
 
 ## Shared data
 
