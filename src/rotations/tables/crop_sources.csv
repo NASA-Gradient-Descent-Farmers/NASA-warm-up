@@ -1,0 +1,9 @@
+columnas,fuente,evidencia,nota
+"kc_ini, kc_med, kc_fin",FAO-56 (Allen et al. 1998) Cuadro 12,media,"Valores de referencia para clima subhúmedo; transcritos de memoria del cuadro, verificar contra el original. Amaranto, ebo, calabaza y forrajes estimados por analogía"
+"d_ini, d_des, d_med, d_fin, t_ref, t_base",FAO-56 Cuadro 11,media,"Duración de etapas a la temperatura t_ref (22 °C cultivos de clima cálido, 15 °C de clima templado); el código la escala con (t_ref − t_base)/(T del ciclo − t_base), entre 0.8 y 1.6. Haba alargada a ~140 días por ser de altura. Variedades locales (p. ej. maíces criollos de altura) pueden durar más"
+raiz_m,FAO-56 Cuadro 22,media,Profundidad efectiva máxima de raíz (punto medio del rango)
+n_producto_kg_t,Contenido de proteína (FAO/INFOODS; USDA FoodData Central) / 6.25,media,kg de N por tonelada del producto tal como lo reporta SIAP (grano o forraje verde)
+"ndfa, nhi",Herridge et al. 2008 (Plant and Soil 311:1-18); Peoples et al. 2009 (Symbiosis 48:1-17),baja,"Fracción del N de la planta que viene de la fijación (Ndfa) y fracción del N que sale en la cosecha (NHI); varían mucho con suelo, inoculación y fertilización"
+"res_pendiente, res_intercepto, raiz_ratio, n_residuo",IPCC 2006 Vol. 4 Cap. 11 Cuadro 11.2,media,"Residuo aéreo (t MS/ha) = pendiente × cosecha (t MS/ha) + intercepto; raíz = raiz_ratio × biomasa aérea. Calabaza, ajonjolí, amaranto y cártamo no están en el cuadro: valores estimados (evidencia baja)"
+"helada, calor, sequia",FAO EcoCrop y agronomía general,media,"0 = sensible, 1 = intermedio, 2 = tolerante. Cualitativo"
+forraje_residuo,Supuesto del equipo,baja,Fracción del residuo aprovechable como forraje (1 = el producto mismo es forraje)

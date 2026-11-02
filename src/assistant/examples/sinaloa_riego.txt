@@ -1,0 +1,32 @@
+👨‍🌾 Hola, soy de Culiacán, Sinaloa, siembro maíz de riego
+🤖 ¡Hola! Qué gusto saludarte. Culiacán, Sinaloa, con riego, ya quedó anotado.
+
+Para ubicar bien tu rotación, cuéntame:
+
+1. ¿Siembras maíz *todos los años* o lo alternas con otro cultivo?
+2. ¿Siembras algo después de cosechar el maíz, en otoño-invierno, o la parcela queda descansando?
+
+👨‍🌾 Quiero ahorrar agua
+🤖 Anotado: lo que más te importa es *ahorrar agua*. 💧
+
+Para armar la comparación me falta saber cómo siembras:
+
+• ¿Es maíz todos los años, o alternas con otro cultivo (frijol, garbanzo, trigo…)?
+• ¿Después de cosechar siembras algo, o la tierra descansa hasta el siguiente ciclo?
+
+👨‍🌾 No tengo animales y el rastrojo lo dejo
+🤖 Revisé tu zona (distrito La Cruz, Culiacán):
+
+• Llueve sobre todo de *jul a sep*, unos 607 mm al año. Tu maíz de otoño-invierno se riega, y la parcela queda sin cultivo de abr a nov.
+• Supuse que siembras maíz cada año en otoño-invierno. Si no es así, dime.
+
+Opciones, pensando en *ahorrar agua* (riego por año):
+
+1. *Tu maíz de siempre*: unos 404 mm. Es el que más ingreso da entre las que usan poca agua, pero deja el nitrógeno del suelo muy gastado.
+2. *Maíz – frijol*: unos 376 mm. Gasta menos agua y cuida más el suelo. Pero el ingreso baja unos $15,800/ha al año (valor de cosecha, sin costos).
+3. *Cártamo – maíz*: unos 343 mm, es la que menos agua usa. Pero baja unos $27,300/ha al año y hay más riesgo de mal año.
+4. *Sorgo forrajero en verano + maíz*: da más ingreso, pero usa unos 680 mm. Es lo contrario de ahorrar agua.
+
+¿Cuál quieres ver a detalle?
+
+Es una guía con datos públicos. La decisión es tuya, con tu experiencia y la de tu técnico.

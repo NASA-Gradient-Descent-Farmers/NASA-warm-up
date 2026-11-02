@@ -1,0 +1,10 @@
+# WhatsApp assistant + MCP server (src/assistant). Lighter than requirements.txt: no crop models or notebooks.
+anthropic>=0.40
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+twilio>=9.0
+mcp>=1.2
+numpy>=1.26
+pandas>=2.1
+pyarrow>=15

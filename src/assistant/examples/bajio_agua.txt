@@ -1,0 +1,65 @@
+👨‍🌾 Buenas tardes, tengo 4 hectáreas en Celaya Guanajuato de temporal, siembro maíz
+🤖 ¡Buenas tardes! Gracias por contarme. Cuatro hectáreas de temporal en Celaya, Guanajuato.
+
+Para entender mejor tu rotación, dime:
+
+1. ¿Siembras maíz todos los años en la misma parcela o lo alternas con otro cultivo, como frijol o sorgo?
+2. Después de cosechar, ¿siembras algo en otoño-invierno, como garbanzo o trigo, o la tierra queda descansando?
+
+👨‍🌾 Lo que más me preocupa es el agua y ganar un poco más. El rastrojo lo dejo
+🤖 Ya revisé Celaya. Esto es lo que vi:
+• Las lluvias van de *junio a septiembre*: unos 663 mm al año, y unos 512 mm en un año seco.
+• Hay riesgo de helada de noviembre a febrero. De diciembre a junio la tierra queda descubierta.
+
+Supuse que siembras maíz cada año, en junio. Si no es así, dime.
+
+Estas son las opciones. Las cifras de ingreso son el valor de la cosecha por hectárea, sin restar costos.
+
+1. *Tu maíz de siempre*: $9,122 al año. La lluvia cubre 56% del agua que pide en un año seco.
+2. *Maíz y garbanzo en invierno*: da más ingreso (+$6,347) y tiene menos años malos. En cambio, cubre menos agua en año seco (51%) y necesita humedad después de la cosecha.
+3. *Maíz un año y frijol al siguiente*: cubre un poco mejor el agua (60%). La diferencia de ingreso no es clara (−$144).
+4. *Milpa*: tiene más ingreso estimado (+$3,623), pero es un supuesto y no un dato de tu distrito. Pide más mano de obra.
+
+Esto es una guía con datos públicos. La decisión es tuya, con tu experiencia y la de tu técnico.
+
+¿Cuál quieres ver a detalle?
+
+👨‍🌾 ¿Y lo del garbanzo? ¿Cuánto me quedaría?
+🤖 Te cuento del *maíz y garbanzo*.
+
+*Por qué se sugiere:* el garbanzo se siembra después de cosechar el maíz y aprovecha la humedad que queda en el suelo. Así la tierra no queda descubierta en invierno.
+
+*Qué dicen los datos:*
+• En tu distrito, el garbanzo rindió 0.87 t por hectárea sembrada en los últimos 10 años, a $8,231 por tonelada (dato de tu distrito). Se siembran pocas hectáreas, unas 480 al año.
+• El satélite de la NASA (SMAP) estima la humedad del suelo en octubre en 63% de su rango (estimación con modelo).
+• Con garbanzo hubo menos años malos: 1.2 de cada 10, contra 1.7 con solo maíz.
+
+Mensaje siguiente: los riesgos. 👇
+
+*Riesgos y lo que no sabemos:*
+• Como te importa el agua, ojo: en un año seco la lluvia cubre un poco menos de lo que pide el cultivo (51%, contra 56% con solo maíz).
+• Hay más trabajo, porque siembras y cosechas más seguido.
+• Los $6,347 más por hectárea son *brutos*: falta restar semilla, siembra, insumos y cosecha.
+• Los datos son promedios del distrito, y tu parcela puede rendir más o menos.
+
+*Para platicar con tu técnico:* si queda suficiente humedad después de cosechar el maíz, y qué plagas y enfermedades hay en tu zona.
+
+Para saber cuánto te quedaría, necesito tus costos. ¿Cuánto te cuesta sembrar una hectárea de maíz y de garbanzo (semilla, fertilizante, maquinaria o yunta, jornales y cosecha)? Si tienes un número aproximado, con eso lo calculo.
+
+👨‍🌾 Sembrar el maíz me cuesta como 9 mil por hectárea y el garbanzo unos 6 mil
+🤖 Con tus costos ($9,000 el maíz y $6,000 el garbanzo), esto es lo que sale por hectárea al año, en promedio de los últimos años:
+
+• *Solo maíz:* te queda cerca de *$122*. En un año malo (1 de cada 10) perderías unos $6,021.
+• *Maíz y garbanzo:* te quedan cerca de *$1,505*. En un año malo perderías unos $1,417.
+
+Con el garbanzo la ganancia promedio es mayor y el año malo pega menos. Lo que ves en estas cifras es el valor de la cosecha menos tus costos, y los datos son de tu distrito.
+
+Ojo con esto:
+• Los costos de las dos siembras suman $15,000, y el garbanzo solo se paga si la cosecha sale cerca del promedio. Para no perder en un año normal, el costo máximo es $16,505. Queda poco margen.
+• En años con pérdida, las cuentas dicen que con garbanzo habría *5 de cada 10* años, contra *3.5 de cada 10* con solo maíz. La razón es que los costos suben, aunque las pérdidas son más chicas.
+
+En resumen, el garbanzo deja más en promedio y protege mejor en un año malo. Pero arriesgas más costos cada año y, en año seco, la lluvia cubre un poco menos (51% contra 56%).
+
+Antes de decidir, platícalo con tu técnico. Que revise si queda humedad suficiente después del maíz y cuánto costaría el garbanzo en tu zona.
+
+¿Quieres que veamos también el frijol o la milpa con tus costos?

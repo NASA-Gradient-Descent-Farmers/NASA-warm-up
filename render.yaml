@@ -1,0 +1,18 @@
+# Render blueprint for the WhatsApp assistant. Secrets are set in the Render dashboard, never here.
+services:
+  - type: web
+    name: field-shift-whatsapp
+    runtime: docker
+    plan: starter            # the free plan sleeps when idle and the first WhatsApp message after a nap times out
+    healthCheckPath: /
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        value: whatsapp:+14155238886
+      - key: PUBLIC_URL
+        sync: false

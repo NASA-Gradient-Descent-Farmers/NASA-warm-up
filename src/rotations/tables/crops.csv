@@ -1,0 +1,20 @@
+key,nombre,familia,uso,leguminosa,siap,ms_producto,kc_ini,kc_med,kc_fin,d_ini,d_des,d_med,d_fin,t_ref,t_base,raiz_m,n_producto_kg_t,ndfa,nhi,res_pendiente,res_intercepto,raiz_ratio,n_residuo,helada,calor,sequia,forraje_residuo,notas
+maize,maíz,Poaceae,grano,0,Maíz grano,0.88,0.3,1.2,0.35,20,35,40,30,22.0,10.0,1.2,14.0,,,1.03,0.61,0.22,0.006,0,1,1,0.5,Sensible a helada y a calor >35 °C en floración
+sorghum,sorgo,Poaceae,grano,0,Sorgo grano,0.89,0.3,1.05,0.55,20,35,40,30,22.0,10.0,1.5,15.0,,,0.88,1.33,0.22,0.007,0,2,2,0.5,Tolerante a sequía y calor; comparte plagas con maíz (gusano cogollero)
+wheat,trigo,Poaceae,grano,0,Trigo grano,0.89,0.3,1.15,0.3,20,25,60,30,15.0,0.0,1.2,20.0,,,1.51,0.52,0.24,0.006,2,0,1,0.4,Cultivo de invierno o de temporal en zonas altas
+barley,cebada,Poaceae,grano,0,Cebada grano,0.89,0.3,1.15,0.25,15,25,50,30,15.0,0.0,1.2,17.0,,,0.98,0.59,0.22,0.007,2,0,1,0.45,Común en el altiplano; mercado ligado a maltería
+oats,avena (grano),Poaceae,grano,0,Avena grano,0.89,0.3,1.15,0.25,15,25,50,30,15.0,0.0,1.0,17.0,,,0.91,0.89,0.25,0.007,2,0,1,0.5,
+oats_forage,avena forrajera,Poaceae,forraje,0,Avena forrajera en verde,0.25,0.3,1.1,0.9,15,25,40,10,15.0,0.0,1.0,5.0,,,0.1,0.3,0.54,0.01,2,0,1,1.0,Se cosecha verde; producción reportada en peso fresco
+maize_forage,maíz forrajero,Poaceae,forraje,0,Maíz forrajero en verde,0.3,0.3,1.2,0.6,20,35,40,15,22.0,10.0,1.2,3.6,,,0.1,0.3,0.22,0.006,0,1,1,1.0,Se cosecha la planta entera; deja poco residuo
+sorghum_forage,sorgo forrajero,Poaceae,forraje,0,Sorgo forrajero en verde,0.25,0.3,1.05,0.8,20,30,40,10,22.0,10.0,1.5,3.5,,,0.1,0.3,0.22,0.007,0,2,2,1.0,Se cosecha la planta entera; deja poco residuo
+bean,frijol,Fabaceae,grano,1,Frijol,0.9,0.4,1.15,0.35,20,30,40,20,22.0,10.0,0.7,34.0,0.4,0.7,1.13,0.85,0.19,0.008,0,0,1,0.7,Fija poco nitrógeno comparado con otras leguminosas; sensible a calor en floración
+faba,haba,Fabaceae,grano,1,Haba grano,0.9,0.5,1.15,0.3,25,35,50,30,15.0,0.0,0.6,40.0,0.65,0.75,1.13,0.85,0.19,0.008,2,0,0,0.7,Fijadora alta; tolera frío; propia de zonas altas. Etapas alargadas a ~140 días (haba de temporal de altura)
+chickpea,garbanzo,Fabaceae,grano,1,Garbanzo grano,0.9,0.4,1.0,0.35,20,30,40,20,15.0,0.0,0.8,30.0,0.55,0.7,1.13,0.85,0.19,0.008,1,1,2,0.7,Se siembra en otoño-invierno con humedad residual o riego
+peanut,cacahuate,Fabaceae,grano,1,Cacahuate,0.92,0.4,1.15,0.6,25,35,45,25,22.0,10.0,0.7,30.0,0.6,0.6,1.07,1.54,0.2,0.016,0,2,1,0.8,Requiere suelos sueltos; la paja es buen forraje
+soybean,soya,Fabaceae,grano,1,Soya,0.9,0.4,1.15,0.5,20,30,60,25,22.0,10.0,0.9,55.0,0.6,0.75,0.93,1.35,0.19,0.008,0,1,1,0.6,Mercado de agroindustria; zonas cálidas
+cowpea,frijol x pelón (espelón),Fabaceae,grano,1,Frijol x pelón,0.9,0.4,1.05,0.35,20,30,30,20,22.0,10.0,0.8,34.0,0.6,0.65,1.13,0.85,0.19,0.008,0,2,2,0.8,Tolerante a calor y sequía; tradicional en la península
+vetch,ebo (veza),Fabaceae,forraje,1,Ebo (janamargo o veza),0.2,0.4,1.0,0.9,20,30,40,10,15.0,0.0,0.6,7.0,0.75,0.8,0.1,0.3,0.4,0.025,2,0,1,1.0,Forraje o abono verde; se siembra solo o asociado con avena
+squash_seed,calabaza (semilla),Cucurbitaceae,grano,0,Calabaza semilla o chihua,0.94,0.5,1.0,0.8,20,30,30,20,22.0,10.0,1.0,45.0,,,3.0,0.5,0.2,0.01,0,1,1,0.4,Cubre el suelo con sus guías; residuo sin datos de referencia
+sesame,ajonjolí,Pedaliaceae,grano,0,Ajonjolí,0.94,0.35,1.1,0.25,20,30,40,20,22.0,10.0,1.2,30.0,,,2.0,0.5,0.2,0.01,0,2,2,0.2,Tolerante a sequía; mercado de exportación
+amaranth,amaranto,Amaranthaceae,grano,0,Amaranto,0.9,0.35,1.05,0.4,20,30,40,20,22.0,10.0,1.0,22.0,,,2.0,0.5,0.2,0.01,0,2,2,0.4,Coeficientes de agua estimados (no está en FAO-56)
+safflower,cártamo,Asteraceae,grano,0,Cártamo,0.92,0.35,1.05,0.25,20,35,45,25,15.0,0.0,1.5,25.0,,,2.0,0.5,0.22,0.008,1,1,2,0.2,Raíz profunda; otoño-invierno en el noroeste y Bajío

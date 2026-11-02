@@ -5,8 +5,9 @@
 __pycache__/
 *.pyc
 
-# Raw / downloaded data
-data/
+# Raw / downloaded data (the processed tables in data/shared/ are tracked so the team can skip the downloads)
+data/*
+!data/shared/
 
 # LaTeX build files
 *.aux

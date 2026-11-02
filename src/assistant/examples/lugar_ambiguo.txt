@@ -1,0 +1,12 @@
+👨‍🌾 Hola, siembro frijol en San Juan
+🤖 ¡Hola! Qué gusto saludarte. Hay muchos lugares que se llaman San Juan en el país, y quiero estar seguro de cuál es el tuyo.
+
+¿En qué *estado* está tu parcela? ¿Y cuál es el nombre completo del municipio? Por ejemplo: San Juan de Sabinas (Coahuila) o San Juan Cancuc (Chiapas).
+
+👨‍🌾 Es en Durango
+🤖 Gracias. En Durango hay dos opciones:
+
+1. *San Juan del Río*
+2. *San Juan de Guadalupe*
+
+¿Cuál es el tuyo?

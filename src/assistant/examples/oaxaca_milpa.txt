@@ -1,0 +1,59 @@
+👨‍🌾 Hola
+🤖 ¡Hola! 🌱 Soy el asistente de Field Shift. Te ayudo a comparar tu rotación de cultivos con otras opciones, usando datos de tu región y de satélites de la NASA. Para empezar: *¿en qué municipio y estado está tu parcela?*
+
+👨‍🌾 Estoy en Villa de Zaachila, Oaxaca
+🤖 ¡Gracias! Villa de Zaachila, en los Valles Centrales de Oaxaca. 👍
+
+Ahora cuéntame: *¿qué siembras y cómo lo alternas de un año a otro?* Por ejemplo: solo maíz, maíz y luego frijol, o milpa. Y dime si siembras algo después de la cosecha, en otoño-invierno.
+
+👨‍🌾 Siembro maíz cada año, de temporal
+🤖 Entendido: maíz cada año, de temporal. 🌽
+
+*¿Qué es lo que más te importa?* Elige de 1 a 3:
+
+1. Ganar más (ingreso)
+2. No perder la cosecha (riesgo)
+3. El agua
+4. La tierra y su fertilidad
+5. Que no se lave la tierra (erosión)
+6. Las plagas
+7. Pastura para tus animales
+
+👨‍🌾 Me importa no perder la cosecha y cuidar la tierra
+🤖 Muy bien: *no perder la cosecha* y *cuidar la tierra*. 👌
+
+Una última pregunta: *¿qué haces con el rastrojo después de cosechar* (lo dejas en la tierra, lo pastoreas, lo sacas o lo quemas)? *¿Y tienes animales?*
+
+👨‍🌾 El rastrojo se lo doy a mis borregos
+🤖 Esto vimos de tu zona, en Valles Centrales:
+• Las lluvias van de *junio a octubre* (~813 mm al año), con *canícula* en julio-agosto.
+• Hay riesgo de helada en nov, dic y ene. Con tu maíz, la parcela queda *descubierta de enero a junio*.
+
+Estas son las opciones para *cuidar la cosecha y la tierra*:
+
+1. *Maíz solo (lo que haces hoy):* ~1.3 de cada 10 años son malos. El suelo queda descubierto 6 meses.
+2. *Maíz – garbanzo (en invierno):* menos años malos (0.7 de cada 10), más materia orgánica y más forraje para tus borregos. Pero en año seco la lluvia alcanza peor y hay más trabajo.
+3. *Maíz – frijol (año con año):* 1.1 de cada 10 años malos. El precio del frijol cambia mucho y casi no mejora el suelo.
+4. *Milpa:* es la que menos años malos muestra (0 de cada 10), pero es un supuesto, no dato de tu distrito. Pide más mano de obra.
+
+*¿Cuál quieres ver a detalle?*
+
+Esto es una guía con datos públicos. La decisión es tuya, con tu experiencia y la de tu técnico.
+
+👨‍🌾 Cuéntame más de la primera opción
+🤖 Va la opción 1, *maíz solo cada año*, que es lo que haces hoy.
+
+*Lo que dicen los datos:*
+• En tu distrito, el maíz de temporal da *1.07 t por hectárea sembrada* en los últimos 10 años, contando lo que se pierde. El precio medio fue de *$4,410 por tonelada*. Son datos de tu distrito, de 23 años.
+• Eso es un valor de cosecha de ~*$4,019 por ha al año*, sin restar costos. En un año malo (1 de cada 10) baja a ~$2,306.
+• En ~1.3 de cada 10 años la cosecha fue menos de la mitad de lo normal.
+
+*Riesgos y lo que no sabemos:*
+• En 24% de los años hubo una noche de ≤2 °C con el maíz en el campo (siembra en junio).
+• El suelo queda descubierto de enero a junio. En mayo y junio llueve fuerte, y ahí se puede lavar la tierra. Es una estimación con modelo.
+• Sacamos materia orgánica y nitrógeno con cada cosecha (~-20 kg N/ha). Es estimación con supuestos de estudios, con poca certeza.
+• Tu rastrojo para los borregos tiene valor, pero deja menos cobertura y materia orgánica en la tierra.
+
+*Para platicar con tu técnico:* qué variedad resiste mejor la canícula y las heladas, y cómo cuidar el suelo con el rastrojo.
+
+Aún no tenemos tus costos. *¿Cuánto te cuesta sembrar una hectárea de maíz, garbanzo, frijol y milpa* (semilla, fertilizante, maquinaria o yunta, jornales y cosecha)? Así calculo cuánto te queda en cada opción.

@@ -1,0 +1,6 @@
+data/*
+!data/shared
+.git
+Notebooks
+docs
+**/__pycache__

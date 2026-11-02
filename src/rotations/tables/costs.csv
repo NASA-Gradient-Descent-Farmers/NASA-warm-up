@@ -1,0 +1,6 @@
+crop,cycle,water,state,cost_mxn_ha,season,yield_assumed_t_ha,source,url,evidencia,nota
+maize,oi,riego,Sinaloa,48400,OI 2025-2026,12.0,"FIRA (director general J. A. Elizondo, citado por Luz Noticias, 2 sep 2025)",https://www.luznoticias.mx/2025-09-02/agro/fira-con-fertilizante-mas-caro-cuanto-cuesta-sembrar-una-hectarea-de-maiz-en-sinaloa/258023,media,Promedio sin renta de la tierra (hasta 60000 con renta)
+sorghum,oi,riego,Sinaloa,28263,OI 2024-2025,7.5,"FIRA Sistema de Costos Agrícolas, vía Panorama Agropecuario (Sorgo_GMF_Sinaloa_OI_2024_2025)",https://panorama-agro.com/?page_id=4387,media,Derivado: ingreso probable − utilidad probable
+wheat,oi,riego,Sinaloa,27815,OI 2024-2025,6.0,"FIRA Sistema de Costos Agrícolas, vía Panorama Agropecuario (Trigo_GMF_Sinaloa_OI_2024_2025)",https://panorama-agro.com/?page_id=4389,media,Derivado: ingreso probable − utilidad probable
+chickpea,oi,riego,Sinaloa,31586,OI 2024-2025,2.2,"FIRA Sistema de Costos Agrícolas, vía Panorama Agropecuario (Garbanzo_GMF_Sinaloa_OI_2024_2025)",https://panorama-agro.com/?page_id=4385,media,Derivado: ingreso probable − utilidad probable
+bean,oi,riego,Sinaloa,32917,OI 2025-2026,1.87,"FIRA Sistema de Costos Agrícolas, vía Panorama Agropecuario (Frijol_GMF_Sinaloa_OI_2025_2026)",https://panorama-agro.com/?page_id=4431,media,Derivado: ingreso probable − utilidad probable
