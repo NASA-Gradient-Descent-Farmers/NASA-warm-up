@@ -18,6 +18,9 @@ xgboost>=2.0
 joblib>=1.3
 scipy>=1.10
 
+# Multi-objective planning (NSGA-II / NSGA-III)
+pymoo==0.6.2  # nsga_planner.py builds NSGA-II on MixedVariableGA with pymoo internals; check before upgrading
+
 # Visualization
 matplotlib>=3.8
 

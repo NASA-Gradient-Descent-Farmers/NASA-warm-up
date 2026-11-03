@@ -1,0 +1,1256 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{lmodern}
+\else
+  \usepackage{fontspec}   % XeTeX (tectonic): Unicode text such as degree signs and accents
+\fi
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,enumitem,xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{R}[1]{>{\raggedright\arraybackslash}p{#1}}
+\Urlmuskip=0mu plus 1mu   % code spans may break between any two characters
+\newcommand{\code}[1]{\texttt{\nolinkurl{#1}}}
+\newcommand{\codeline}[1]{\texttt{\detokenize{#1}}}   % code with spaces (not for \\ % #)
+\newcommand{\finding}[1]{\textcolor{red!60!black}{\textbf{[finding]}}~#1}
+
+% unit shorthands (math mode)
+\newcommand{\tha}{\mathrm{t\,ha^{-1}}}
+\newcommand{\kgNha}{\mathrm{kg\,N\,ha^{-1}}}
+\newcommand{\mxnha}{\mathrm{MXN\,ha^{-1}}}
+\newcommand{\tCha}{\mathrm{t\,C\,ha^{-1}}}
+\newcommand{\mxnt}{\mathrm{MXN\,t^{-1}}}
+\newcommand{\mxnkgN}{\mathrm{MXN\,(kg\,N)^{-1}}}
+\newcommand{\CVaR}{\operatorname{CVaR}}
+\setlist{itemsep=1pt,topsep=2pt,parsep=0pt}
+% tables stay where they are written (no floating) and carry a numbered caption below
+\makeatletter
+\renewenvironment{table}[1][]{\par\vspace{3pt}\begin{center}\footnotesize}{\end{center}\par\vspace{1pt}}
+\renewcommand{\caption}[1]{\par\nopagebreak[4]\vspace{3pt}\refstepcounter{table}\noindent\parbox{0.94\linewidth}{\footnotesize\raggedright\textbf{Table~\thetable.} #1}\par\vspace{2pt}}
+\renewcommand\section{\@startsection{section}{1}{\z@}{-2.2ex plus -.5ex minus -.2ex}{1.0ex plus .2ex}{\normalfont\Large\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}{-1.6ex plus -.4ex minus -.2ex}{0.6ex plus .1ex}{\normalfont\large\bfseries}}
+\makeatother
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+\setlength{\parskip}{3pt}
+\setlength{\abovedisplayskip}{4pt plus 2pt minus 2pt}
+\setlength{\belowdisplayskip}{4pt plus 2pt minus 2pt}
+\renewcommand{\arraystretch}{1.04}
+
+\title{\vspace{-1.6cm}The NSGA planner: what it computes, line by line\\[0.2em]
+\large A typeset walkthrough of the mathematics, the code and the numbers}
+\author{Prepared for Isaac by the \texttt{isaacs-inspector} agent \\ \small October 26, 2026}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.1cm}
+
+\section{Takeaways and what changed after review}
+\label{sec:take}
+
+\noindent\fcolorbox{blue!50!black}{blue!4}{\begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}
+\small\textbf{If you read only this box.}
+\begin{enumerate}[leftmargin=1.6em,itemsep=2pt,topsep=2pt]
+\item \textbf{What it is.} Scores $4{,}284$ strategies $x=(\omega,s,r)$ (rotation, fertilizer scale, stover retention) on five objectives by interpolating $2{,}016$ WOFOST
+  crop-simulation seasons; NSGA-II/III (evolutionary multi-objective search) is checked against brute force over all $4{,}284$.
+\item \textbf{The arithmetic is right.} An independent pandas recomputation of 10 strategies matches the planner to a relative $1.2\times10^{-16}$; all 35 unit tests pass.
+\item \textbf{Two inputs set the conclusions, not the algorithms:} how much yield nitrogen buys (calibrated WOFOST: none, $2.301\to2.312\,\tha$; default: almost linear) and placeholder prices (the faba bean price used is $3.3\times$ SIAP's latest value).
+\item \textbf{``N lost'' restates the dose:} $\approx0.49\,D$ in the default world (by the fixed 50\% recovery constant), $\approx0.95\,D$ in the calibrated one. It is not a measured loss.
+\item \textbf{The big fronts are partly artifacts:} $483$ calibrated strategies come from dominance resistance (Section~\ref{sec:dominance}). A float-noise bug had kept $21$ more on the front ($504$ before) and produced one of the picks; it is fixed (Section~\ref{sec:artifact}).
+\item \textbf{NSGA-III never ``plateaued'' at 89--94\%:} that was a reporting bug (\code{result.X}); the final population covers $95$--$98.5\%$ of the hypervolume, and NSGA saves no evaluations over brute force here.
+\item \textbf{Chebyshev picks and the robust ``hedge dose'' are unstable.} The hedge ($48$--$132\,\kgNha$) holds only under range-normalized regret ($176$--$200$ in absolute pesos).
+\item \textbf{Resilience is weak evidence.} Bad-year income is the mean of the worst 4 of 16 years, which are frost-truncated seasons (correlation with yield $-0.70$), not droughts; the holdout cannot test
+  drought; the SMAP agreement ($r=0.87$) feeds nothing and could not be re-run.
+\end{enumerate}
+\end{minipage}}
+
+\noindent\textbf{Scope.} This document explains \code{src/crop_models/nsga_planner.py} (multi-objective planning of rainfed rotations at Texcoco, Mexico) as it stands in the working tree on
+October 26, 2026 (HEAD \code{21e30ec} plus uncommitted changes), replaces the plain-text draft \code{src/crop_models/NSGA_WALKTHROUGH.md} (keeping its structure and status table) and is meant to be read alone.
+Every number was recomputed from \code{data/nsga/grid.csv} or the saved fronts in \code{data/nsga/*/} with the repository's own code (Section~\ref{sec:verify}).
+Statements are labeled \emph{code} (what the code does), \emph{docs} (what repository documents say) or \emph{my reading} (interpretation).
+
+\newpage
+\subsection*{Status of the earlier review findings}
+
+The first review read the code just before these changes. ``Fixed'' means I confirmed the fix in the current code or data.
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.40\linewidth}Y@{}}
+\toprule
+Finding & Status \\
+\midrule
+NSGA-III's ``89--94\% plateau'' is a reporting artifact: pymoo's \code{result.X} keeps one strategy per occupied reference direction.
+& \textbf{Fixed.} \code{optimize} returns the non-dominated set of the final population \code{result.pop} (\code{nsga_planner.py:323--326}; test \code{tests/test_nsga_planner.py:199}); coverage $95$--$98.5\%$ (Table~\ref{tab:bug}). The ``thin front'' explanation is removed. \\
+``Worst 20\% of years'' is the worst 25\% for 16 years ($q=\lceil0.2\cdot16\rceil=4$).
+& \textbf{Fixed by relabeling} to the worst quarter, \codeline{CVAR_SHARE = 0.25} (\code{nsga_planner.py:82}). No number changes. \\
+Default-world stover and roots are not capped like grain.
+& \textbf{Documented}, not changed (shared simulator code); still open (Section~\ref{sec:objectives}). \\
+Doc slips (``3\,kg'' should be 4; Reproduce commands did not match \code{run.json}).
+& \textbf{Fixed.} The saved runs reproduce here (Section~\ref{sec:nsga}). \\
+Latest SIAP faba bean price (2025: $5{,}030\,\mxnt$) is $0.30\times$ the price used.
+& \textbf{Documented.} The price used is the median of $16{,}548$, $16{,}524$, $5{,}030$. \\
+The minimax dose depends on how regret is normalized ($176$--$200\,\kgNha$ in absolute pesos).
+& \textbf{Verified and documented}; derived in closed form in Section~\ref{sec:robust}. \\
+``Benign years'' for 2022--2025 is unsupported; ``N loss is a lower bound'' unverifiable; IGBP's carbon stock is read by no objective.
+& \textbf{Rewritten} in the results document. \\
+Calibrated picks sit inside the first interpolation cell $[0,0.25]$, whose interior was never simulated.
+& \textbf{Documented}; a finer low-dose grid is a next step. After the float fix the calibrated picks are at $s=0$ (a simulated node), but the $231$ maize front members still lie inside the cell. \\
+$21$ calibrated front members existed only through a $4.4\times10^{-16}\,\tha$ float difference (second review); the first review's ``no pick changes'' was wrong.
+& \textbf{Fixed.} \code{pareto_front} (\code{nsga_planner.py:231--244}) compares objectives rounded to $9$ decimals (\codeline{FRONT_DECIMALS = 9}; tests \code{tests/test_nsga_planner.py:163,172}). Front sizes, the coverage tables and the calibrated sustainability-first pick changed (Section~\ref{sec:artifact}). \\
+\bottomrule
+\end{tabularx}
+\caption{Findings of the first review and their status.}
+\label{tab:status}
+\end{table}
+
+\subsection*{Corrections made while re-typesetting this document}
+
+Every number of the Markdown draft was re-verified; six changed (marked where they occur).
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.26\linewidth}R{0.24\linewidth}Y@{}}
+\toprule
+Item & Markdown draft & Re-verified value \\
+\midrule
+Maize--faba bean 2018 N-loss example & ``the faba phase took up 97.5 kg'' & It is the \emph{maize} phase ($Q=97.52$, $Q(0)=88.54$, $D=80$); the faba phase has $D=20$ and no extra uptake. \\
+Front members dominated once yield is dropped & $374$ of $462$ (leaving $88$) & $444$ of $462$ (leaving $18$) \\
+Standing mineral N versus ``lost'' N (calibrated, maize, $s=1$) & ``about 3\% of the 152 kg lost'' & $68.7\,\kgNha$ more mineral N at the start of the 2021 season than at $s=0$, i.e.\ $2.8\%$ of the 16-year cumulative ``loss'' $16\times152.2=2{,}435\,\kgNha$ \\
+Crossing of the two income-shortfall lines & $N^\ast=0.180/(a+b)=87.5$ & $87.3$ by the closed form; $89.4$ exact on the piecewise-linear curves; lattice optimum $88$ \\
+Held-out net income of the two picks & $11{,}598$ vs $6{,}086$ (picks of an earlier front) & $11{,}598$ vs $6{,}158$ for the picks on the current saved front \\
+Faba bean area behind the price & ``4--12 ha'' & $10$--$12$ ha of faba bean (the 4--12 range is barley and faba bean together) \\
+\bottomrule
+\end{tabularx}
+\caption{Numbers corrected relative to \code{NSGA_WALKTHROUGH.md}.}
+\label{tab:corr}
+\end{table}
+
+\section{The picture and the pipeline}
+\label{sec:pipeline}
+
+\textbf{The question.} A farmer at Texcoco (Valley of Mexico, $19.53^\circ$N, $98.85^\circ$W, rainfed, one crop per
+rainy season) can choose a rotation, a fertilizer level and how much stover (the leaves and stems left after harvest)
+to leave in the field. Which choices are good \emph{jointly} for yield, income, nitrogen lost to the environment, soil
+carbon returned and surviving bad years? There is no single best answer, so the planner returns the
+\emph{Pareto front}: the strategies that no other strategy beats on every objective at once.
+
+\textbf{What goes in and out.} In: a table of $2{,}016$ simulated crop seasons (\code{data/nsga/grid.csv}) from WOFOST
+(WOrld FOod STudies, a daily crop growth model; run through PCSE, the Python Crop Simulation Environment) for two parameter sets, plus prices
+and costs. Out: for every strategy five numbers, the Pareto front of those numbers, and (optionally) one compromise pick.
+Where it sits: it is the last stage of the pipeline, downstream of ingest, simulation and calibration.
+
+\begin{center}\small
+\begin{tabular}{@{}c@{\,}c@{\,}c@{\,}c@{\,}c@{\,}c@{\,}c@{}}
+NASA data & $\rightarrow$ & WOFOST runs & $\rightarrow$ & \code{grid.csv} & $\rightarrow$ & \code{Grid} (arrays) \\[2pt]
+ & & & & & & $\downarrow$ \\[2pt]
+\code{choose} / \code{RobustPlanner} & $\leftarrow$ & NSGA-II/III + brute force & $\leftarrow$ & \code{Planner.objectives} & $\leftarrow$ & interpolation along $s$
+\end{tabular}
+\end{center}
+
+The planner chain in code: \code{Grid} (\code{nsga_planner.py:106}) $\to$ \code{Planner.annual} (:164) $\to$
+\code{Planner.objectives} (:182) $\to$ \code{brute_force} (:258), \code{optimize} (:266), \code{front_quality} (:329),
+\code{choose} (:348), \code{RobustPlanner} (:190).
+
+\subsection{Which dataset feeds which stage}
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.22\linewidth}Y R{0.24\linewidth}@{}}
+\toprule
+Dataset & What it provides here & Where used \\
+\midrule
+POWER (NASA Prediction Of Worldwide Energy Resources) & Daily weather 2005--2025 at the site: radiation, temperature, rain. Drives every simulated season; its year-to-year spread is the only source of risk in the bad-year objective. & \code{wofost_rotations.py:342} \\
+IGBP-DIS (soil data of the International Geosphere--Biosphere Programme, via NASA Earthdata) & Field capacity $0.373$ and wilting point $0.137\ \mathrm{m^3\,m^{-3}}$ (0--100\,cm); total soil N $12{,}709\,\kgNha$, of which $0.5\%$ per season is mineralized: $0.005\times12{,}708.6=63.5\,\kgNha$ & \code{wofost_rotations.py:149-150,157,118} \\
+GLDAS (Global Land Data Assimilation System) & Soil porosity $0.437\ \mathrm{m^3\,m^{-3}}$ & \code{wofost_rotations.py:151} \\
+IGBP-DIS soil carbon & $130.4\ \mathrm{t\,C\,ha^{-1}}$ stock, written to \code{grid.json} only. \emph{No objective reads it.} & \code{nsga_planner.py:526-530} \\
+SMAP (Soil Moisture Active Passive) & An earlier validation of simulated soil water (below); \emph{not used by the planner}. & \code{wofost_rotations.py:391} \\
+\midrule
+SIAP (Mexican agriculture ministry; not NASA) & Prices (median of the last three priced years: maize $7{,}981$, barley $5{,}240$, faba bean $16{,}524\,\mxnt$) and the observed yields behind the calibration. & \code{farm_tool.py:98} \\
+Placeholders (no source) & Other costs ($14{,}000$, $9{,}000$, $11{,}000\,\mxnha$), N price $25\,\mxnkgN$, stover price $1{,}000\,\mxnt$, carbon fraction $0.45$. & \code{nsga_planner.py:78-81} \\
+\bottomrule
+\end{tabularx}
+\caption{Inputs of the planner and their provenance. The grid has 8 rotation-phases ($1+2+2+3$) $\times$ 21 years
+$\times$ 6 fertilizer scales $\times$ 2 parameter sets $=2{,}016$ rows; the planner uses 2006--2021 (design) and 2022--2025 (holdout).}
+\end{table}
+
+\subsection{The SMAP check: what it is and what it is not}
+
+\emph{Code} (\code{wofost_rotations.py:391--402}): the simulated 0--100\,cm soil water $\mathrm{WWLOW}$ (cm) is divided by the rooting depth
+of $100$\,cm to give a volumetric fraction $\mathrm{SM}^{\mathrm{sim}}_d$ ($\mathrm{m^3\,m^{-3}}$), and compared with SMAP's L4 root-zone moisture
+$\mathrm{SM}^{\mathrm{SMAP}}_d$ (daily means of 3-hourly values) by a Pearson correlation over the overlapping days $d$,
+\begin{equation}
+r=\operatorname{corr}_d\!\big(\mathrm{SM}^{\mathrm{sim}}_d,\ \mathrm{SM}^{\mathrm{SMAP}}_d\big),\qquad
+\mathrm{SM}^{\mathrm{sim}}_d=\frac{\mathrm{WWLOW}_d}{100\ \mathrm{cm}}.
+\label{eq:smap}
+\end{equation}
+\emph{Docs}: $r=0.87$ over $731$ days (2023--2024) for the maize-every-year rotation
+(\code{docs/technical_report/tables/smap.tex}). \textbf{I could not re-run this}: it needs a PCSE simulation, which was
+excluded here; I also cannot tell from the repository which parameter set (default or calibrated) produced it.
+
+What it is not (\emph{my reading}): it calibrates nothing, and \code{nsga_planner.py} never reads SMAP. Pearson $r$ ignores bias and scale. The $731$ daily values are not
+independent (the lag-1 autocorrelation of the SMAP series in \code{data/smap_texcoco_2023_2024.csv} is $0.998$, lag 30 is $0.83$; I computed this), so $r$ is dominated by the shared
+seasonal wet--dry cycle and the effective sample is far smaller than $731$. And it compares one simulated field with a $\sim9$\,km SMAP cell. It says the simulated water follows the
+right seasons, not that drought years are reproduced.
+
+\subsection{Notation used throughout}
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.15\linewidth}Y R{0.27\linewidth}@{}}
+\toprule
+Symbol & Meaning & Unit or value \\
+\midrule
+$\omega$ & rotation (categorical): maize, maize--barley, maize--faba bean, maize--barley--faba bean & --- \\
+$s$ & fertilizer scale, a multiple of each crop's dose ($s=1$: maize 160, barley 60, faba bean 40) & dimensionless, $[0,1.25]$ \\
+$r$ & stover retention, the share of stover left in the field & fraction, $[0,1]$ \\
+$x=(\omega,s,r)$ & a strategy; the lattice is $\Omega$, $|\Omega|=4{,}284$ & --- \\
+$N=160\,s$ & ``maize N'', the maize dose implied by $s$ & $\kgNha$ \\
+$t,\ T$; $u,\ n_u$ & design year ($2006$--$2021$, $T=16$); phase of the rotation ($n_u=1,2,2,3$) & --- \\
+$c_{tu}$ & crop grown in year $t$ in phase $u$ & maize, barley, faba bean \\
+$G,\,D,\,Q,\,S,\,B$ & grain, N dose, N uptake, stover (leaves incl.\ dead + stems), roots, per season & $\tha$ dry matter, $\kgNha$, $\kgNha$, $\tha$, $\tha$ \\
+$\pi_c,\,K_c$; $\pi_N,\,\pi_S,\,\phi$ & grain price, other cost of crop $c$; N price $25$, stover price $1{,}000$, carbon fraction $0.45$ & $\mxnt$, $\mxnha$; $\mxnkgN$, $\mxnt$, $\mathrm{t\,C\,(t\,DM)^{-1}}$ \\
+$Y_t,V_t,L_t,C_t$ & annual (phase-averaged) yield, net income, N loss, carbon input & $\tha$, $\mxnha$, $\kgNha$, $\tCha$ \\
+$f_1,\dots,f_M$; $\sigma_i$ & objectives in minimization form $f_i=\sigma_i\times$ natural value, $\sigma_i=\pm1$; $M\in\{2,\dots,5\}$ & --- \\
+$\alpha,\ q$ & tail share $0.25$ and tail count $q=\lceil\alpha T\rceil=4$ & --- \\
+$\theta$ & WOFOST parameter set (``world''): default (def) or calibrated (cal) & --- \\
+\bottomrule
+\end{tabularx}
+\caption{Symbols. A symbol keeps its meaning for the whole document.}
+\end{table}
+
+\section{The grid and linear interpolation along the fertilizer scale}
+\label{sec:grid}
+
+\textbf{Plain language.} WOFOST was run only at six fertilizer levels. A strategy at a finer level, say $s=0.6$, is
+scored by blending the two neighboring simulated levels, season by season, as if yield were a straight line between
+them. This is what makes a strategy cost about $60\,\mu$s instead of a 3--10\,s simulation.
+
+\subsection{The equation}
+
+The grid nodes are $s_0,\dots,s_5=0,\,0.25,\,0.5,\,0.75,\,1,\,1.25$ (\code{GRID_SCALES}, \code{nsga_planner.py:60}).
+For any simulated quantity $X\in\{G,D,Q,S,B\}$ of one (year, phase) cell, a strategy with scale $s$ (clipped to
+$[0,1.25]$) uses
+\begin{equation}
+j(s)=\min\!\big\{4,\ \max\{j:\ s_j\le s\}\big\},\qquad
+w=\frac{s-s_{j}}{s_{j+1}-s_{j}},\qquad
+X(s)=(1-w)\,X_{j}+w\,X_{j+1}.
+\label{eq:interp}
+\end{equation}
+Here $w\in[0,1]$ is the weight on the upper node (dimensionless) and $X_j$ is the value simulated at node $s_j$.
+Code: \code{Grid.interpolate}, \code{nsga_planner.py:136--142}; the clip is line 138, $j$ is line 139, $w$ is line 140
+and the blend is line 141. At a node $w=0$ and the table value is returned exactly (test \code{tests/test_nsga_planner.py:63}).
+
+\textbf{Worked number} (default parameters, pure maize, 2006, $s=0.6$). Here $j=2$ ($s_2=0.5$) and
+\begin{equation}
+\begin{aligned}
+w &= \frac{0.6-0.5}{0.75-0.5}=0.4,\\
+G(0.6) &= 0.6\times5.965005+0.4\times7.993159 = 3.579003+3.197264 = 6.776267\ \tha .
+\end{aligned}
+\end{equation}
+The code returns $6.776266824$; hand and code agree.
+
+\subsection{What the nodes look like}
+
+\begin{table}[h]
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+ & & \multicolumn{6}{c}{fertilizer scale $s_j$ (maize dose $D=160\,s_j$)} \\
+\cmidrule(l){3-8}
+Parameters & Mean over 2006--2021, pure maize & $0$ & $0.25$ & $0.5$ & $0.75$ & $1$ & $1.25$ \\
+\midrule
+default & yield $\bar G$ [$\mathrm{t\,ha^{-1}}$] & $1.918$ & $3.038$ & $4.162$ & $5.252$ & $6.482$ & $7.599$ \\
+default & uptake $\bar Q$ [$\mathrm{kg\,N\,ha^{-1}}$] & $66.6$ & $86.8$ & $107.0$ & $127.2$ & $147.4$ & $167.6$ \\
+calibrated & yield $\bar G$ [$\mathrm{t\,ha^{-1}}$] & $2.301$ & $2.312$ & $2.312$ & $2.312$ & $2.312$ & $2.312$ \\
+calibrated & uptake $\bar Q$ [$\mathrm{kg\,N\,ha^{-1}}$] & $59.9$ & $67.3$ & $67.8$ & $67.8$ & $67.8$ & $67.8$ \\
+\bottomrule
+\end{tabular}
+\caption{Node means of grain yield $\bar G$ and N uptake $\bar Q$ (pure-maize rotation, design years).}
+\label{tab:nodes}
+\end{table}
+
+\textbf{Default world: a near-linear nitrogen response.} Uptake rises $20.2\,\kgNha$ per $40\,\kgNha$ of dose, an
+\emph{apparent recovery}
+\begin{equation}
+\mathrm{AR}(s)=\frac{\bar Q(s)-\bar Q(0)}{\bar D(s)}\quad[\text{dimensionless}],\qquad
+\mathrm{AR}_{\mathrm{def}}(0.25)=\frac{86.816-66.584}{40}=0.506,
+\label{eq:ar}
+\end{equation}
+which is the hand-set \codeline{N_RECOVERY = 0.5} (\code{wofost_rotations.py:117}, ``share of fertilizer N the crop can access'')
+plus a little carry-over. Yield rises by about $1.1\,\tha$ per node.
+
+\textbf{Calibrated world: no response, and why.} Yield moves from $2.3008$ to $2.3125\,\tha$ ($+0.0117$, $+0.51\%$) and
+uptake saturates at $67.75\,\kgNha$ from $s=0.5$ on, giving $\mathrm{AR}_{\mathrm{cal}}(1)=(67.75-59.93)/160=0.049$.
+\emph{Docs} (\code{CALIBRATION_RESULTS.md}): the calibration absorbed the Texcoco yield gap into photosynthesis (maize scaled
+by $0.47$, grid.json), so growth is limited by carbon rather than nitrogen. The crop's N demand tops out near
+$68\,\kgNha$ while the soil already supplies about $63.5$ (mineralization above) plus carry-over, so extra fertilizer has
+nothing to do. \emph{My reading}: this is a property of the fitted parameter set, whose only nitrogen evidence is one
+station trial (unfertilized/fertilized ratio $0.93$; the model's is $0.995$), not an agronomic finding.
+\emph{Docs} on the fit: the calibrated knobs per crop are a thermal-time (phenology) scale and a photosynthesis scale (maize $0.8$ and $0.47$, \code{grid.json}; the $0.8$ sits on the agronomic lower bound), with N recovery and soil mineralization left at their defaults; they were fit to the 16 yearly SIAP yields of 2006--2021, and 2022--2025 was held out.
+
+\subsection{Assumptions and where they break}
+
+\begin{itemize}
+\item \textbf{Histories are mixed.} Each node is a 21-year simulation at a fixed $s$, chaining water and soil N from season
+  to season. A season at $s=0.6$ would carry a $0.6$-history; Equation~\eqref{eq:interp} blends the $0.5$- and
+  $0.75$-histories instead.
+\item \textbf{Straight line between nodes.} Reasonable where the response is near-linear (default), not where it jumps
+  (calibrated uptake between $s=0$ and $0.25$, a maximum change of $29\,\kgNha$ in one season).
+\item \textbf{The lattice is $10\times$ finer than the nodes.} Strategies sit every $0.025$, nodes every $0.25$. The calibrated
+  picks are at $s=0$ (a simulated node), but the $231$ maize strategies on the five-objective front ($s=0$--$0.25$) rest on interpolation inside the first cell $[0,0.25]$, whose interior was never simulated.
+\end{itemize}
+
+\textbf{Leave-one-node-out error.} Predict each interior node $j=1,\dots,4$ from its two neighbors,
+$\hat X_j=\tfrac12(X_{j-1}+X_{j+1})$, and compare with the simulated $X_j$ over all rotations, years and phases. The
+spacing is twice the real one, so this overstates the error of Equation~\eqref{eq:interp}.
+
+\begin{table}[h]
+\begin{tabular}{@{}llccc@{}}
+\toprule
+World & Quantity & mean $|\hat X_j-X_j|$ per season & 95th pct & max \\
+\midrule
+default & grain yield ($\tha$) & $0.048$ & $0.20$ & $0.82$ \\
+default & N uptake ($\kgNha$) & $0.014$ & $0.043$ & $0.42$ \\
+calibrated & grain yield ($\tha$) & $0.000$ & $0.000$ & $0.064$ \\
+calibrated & N uptake ($\kgNha$) & $0.24$ & $0.000$ & $13.2$ \\
+\bottomrule
+\end{tabular}
+\caption{Leave-one-node-out error. The error of the 16-year, all-phase \emph{mean} is at most $0.069\,\tha$ for default
+yield (about $1\%$) and $3.42\,\kgNha$ for calibrated uptake.}
+\label{tab:loo}
+\end{table}
+
+\section{The five objectives, and one strategy worked end to end}
+\label{sec:objectives}
+
+\textbf{Plain language.} For a given strategy the planner builds, for each of the 16 design years, four farm-level numbers
+(yield, net income, N lost, carbon input), averaging over the rotation's phases (a hectare is, on average, half maize
+and half faba bean each year in a two-crop rotation). The objectives are the 16-year means of those, plus a risk
+measure: the mean net income of the worst quarter of years.
+
+\subsection{The equations}
+
+For one (year, phase) cell, let $G,D,Q,S,B$ be the interpolated values from Equation~\eqref{eq:interp} at the strategy's
+$s$, and $Q(0)$ the N uptake of the \emph{same cell} at the zero-fertilizer node. With crop $c=c_{tu}$ in that cell, the
+four annual numbers are phase averages ($n_u$ phases):
+\begin{align}
+Y_t &= \frac1{n_u}\sum_{u=1}^{n_u} G_{tu}
+  && [\tha\ \text{dry matter grain}] \label{eq:yield}\\
+V_t &= \frac1{n_u}\sum_{u=1}^{n_u}\Big[\pi_c\,G_{tu}-\big(K_c+\pi_N D_{tu}\big)+\pi_S\,(1-r)\,S_{tu}\Big]
+  && [\mxnha] \label{eq:net}\\
+L_t &= \frac1{n_u}\sum_{u=1}^{n_u}\max\!\Big\{0,\ D_{tu}-\big(Q_{tu}-Q_{tu}(0)\big)\Big\}
+  && [\kgNha] \label{eq:nloss}\\
+C_t &= \frac1{n_u}\sum_{u=1}^{n_u}\phi\,\big(B_{tu}+r\,S_{tu}\big)
+  && [\tCha] \label{eq:carbon}
+\end{align}
+The five objectives (all in natural units; the search minimizes $f_i=\sigma_i\times$ objective with $\sigma=-1$ for
+the maximized ones, \code{NATURAL_SIGN}, :69):
+\begin{align}
+\bar Y&=\frac1T\sum_{t=1}^T Y_t, \qquad \bar V=\frac1T\sum_{t=1}^T V_t, \qquad
+\bar L=\frac1T\sum_{t=1}^T L_t, \qquad \bar C=\frac1T\sum_{t=1}^T C_t,
+\label{eq:means}
+\end{align}
+\begin{equation}
+\CVaR_\alpha=\frac1q\sum_{l=1}^{q}V_{(l)},\qquad
+q=\max\{1,\lceil\alpha T\rceil\}=\lceil0.25\times16\rceil=4,\qquad
+V_{(1)}\le V_{(2)}\le\cdots\le V_{(T)} .
+\label{eq:cvar}
+\end{equation}
+$\CVaR_\alpha$ (conditional value at risk, here of a gain, i.e.\ the expected shortfall of income) is the mean of the $q$
+lowest annual incomes $V_{(l)}$ (order statistics, $\mxnha$). Because $\alpha T=4$ is an integer, this is exactly the
+textbook empirical estimator of the lower-tail mean at level $\alpha$; for non-integer $\alpha T$ the ceiling makes the tail
+slightly larger than $\alpha$.
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}l Y l@{}}
+\toprule
+Term & Code & Line \\
+\midrule
+$G,D,Q,S,B$ at scale $s$ & \codeline{grain, dose, uptake, stover, roots = (g.interpolate(rotation, name, n_scale) for name in FIELDS)} & :174 \\
+$\max\{0,\,D-(Q-Q(0))\}$ & \codeline{np.maximum(0.0, dose - (uptake - g.rotations[rotation]["n_uptake_kg_ha"][0]))}; node index 0 is $s=0$ & :175 \\
+$V$ & \codeline{grain*price - (cost + e.n_price*dose) + e.stover_price*(1-retention)*stover} & :176--177 \\
+$C$ & \codeline{e.carbon_fraction*(roots + retention*stover)} & :178 \\
+phase average $\frac1{n_u}\sum_u$ & \code{.mean(axis=1)} (axis 1 = phase), after the floor and the prices are applied cell by cell & :179--180 \\
+year mean $\frac1T\sum_t$ & \code{.mean()} in \code{objectives} & :185--186 \\
+$\CVaR_\alpha$ & \codeline{tail_mean(values, share=CVAR_SHARE)}: \codeline{k = max(1, int(np.ceil(share*len(values))))}; mean of \code{np.sort(values)[:k]} & :145--148, 187 \\
+$\pi_N,\pi_S,\phi,K_c$ & \code{PLACEHOLDER_*}, \code{CARBON_FRACTION}, \code{CVAR_SHARE} & :78--82 \\
+\bottomrule
+\end{tabularx}
+\caption{Symbols to code in \code{nsga_planner.py}.}
+\end{table}
+
+\textbf{Assumptions.} The crop in each (year, phase) cell is the same at every $s$ (checked at construction, :131--132).
+Retention $r$ is pure accounting: it moves stover between income ($\pi_S$) and carbon ($\phi$) and changes nothing in the
+simulation. Prices are constants (no price series), and a phase-averaged hectare is a farm of equal-sized fields.
+
+\subsection{One strategy, end to end}
+
+Strategy: \emph{calibrated} parameters, maize--faba bean, $s=0.5$ (doses $D=80$ for maize and $20$ for faba bean, so
+$50\,\kgNha$ phase average), $r=0.5$, design years 2006--2021. At $s=0.5$, $w=0$ in Equation~\eqref{eq:interp}, so the
+node values are used directly. Rotations are offset in time, so in odd years phase~1 is maize and phase~2 faba bean, and
+vice versa.
+
+\textbf{Step 1: one year by hand, 2007} (phase~1 is maize). Prices: maize $7{,}981.46$, faba bean $16{,}524\,\mxnt$.
+
+\begin{table}[h]
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & maize ($u=1$) & faba bean ($u=2$) & phase average \\
+\midrule
+$G$ ($\tha$) & $2.1785$ & $1.7079$ & $1.9432$ \\
+$D$ ($\kgNha$) & $80$ & $20$ & $50$ \\
+$Q=Q(0)$ ($\kgNha$) & $61.936$ & $21.095$ & \\
+$S$, $B$ ($\tha$) & $1.3774$, $0.2170$ & $0.8111$, $0.2299$ & \\
+\midrule
+revenue $\pi_c G$ ($\mxnha$) & $2.1785\times7981.46=17{,}387.5$ & $1.7079\times16524=28{,}221.7$ & \\
+other cost $K_c$ & $-14{,}000$ & $-11{,}000$ & \\
+N cost $\pi_N D$ & $-25\times80=-2{,}000$ & $-25\times20=-500$ & \\
+stover income $\pi_S(1-r)S$ & $1000\times0.5\times1.3774=688.7$ & $1000\times0.5\times0.8111=405.6$ & \\
+net $V$ & $2{,}076.2$ & $17{,}127.3$ & $9{,}601.7$ \\
+N loss $\max\{0,80-0\}$, $\max\{0,20-0\}$ & $80$ & $20$ & $50.0$ \\
+carbon $0.45\,(B+0.5\,S)$ & $0.4075$ & $0.2860$ & $0.3467$ \\
+\bottomrule
+\end{tabular}
+\caption{The year 2007 by hand. The code returns $V=9{,}601.73$, $L=50.0$, $C=0.34675$, $Y=1.94321$ for this year (identical).}
+\label{tab:y2007}
+\end{table}
+
+\textbf{Step 2: all 16 years.} Every year has dose $50\,\kgNha$; $L_t=50$ except 2018.
+
+\begin{table}[h]
+\begin{tabular}{@{}lcrrrr@{}}
+\toprule
+Year $t$ & phase-1 crop & $Y_t$ ($\tha$) & $V_t$ ($\mxnha$) & $L_t$ ($\kgNha$) & $C_t$ ($\tCha$) \\
+\midrule
+2006 & \code{fababean} & $2.134$ & $10{,}590$ & $50.0$ & $0.356$ \\
+2007 & \code{maize} & $1.943$ & $9{,}602$ & $50.0$ & $0.347$ \\
+2008 & \code{fababean} & $1.692$ & $7{,}547$ & $50.0$ & $0.319$ \\
+2009 & \code{maize} & $2.413$ & $13{,}499$ & $50.0$ & $0.401$ \\
+2010 & \code{fababean} & $0.887$ & $-1{,}727$ & $50.0$ & $0.256$ \\
+2011 & \code{maize} & $1.212$ & $3{,}695$ & $50.0$ & $0.376$ \\
+2012 & \code{fababean} & $1.553$ & $6{,}937$ & $50.0$ & $0.323$ \\
+2013 & \code{maize} & $2.191$ & $12{,}279$ & $50.0$ & $0.366$ \\
+2014 & \code{fababean} & $2.252$ & $13{,}213$ & $50.0$ & $0.384$ \\
+2015 & \code{maize} & $2.526$ & $15{,}015$ & $50.0$ & $0.427$ \\
+2016 & \code{fababean} & $2.388$ & $13{,}961$ & $50.0$ & $0.428$ \\
+2017 & \code{maize} & $2.081$ & $10{,}869$ & $50.0$ & $0.384$ \\
+2018 & \code{fababean} & $2.724$ & $17{,}375$ & $45.5$ & $0.480$ \\
+2019 & \code{maize} & $2.570$ & $15{,}494$ & $50.0$ & $0.422$ \\
+2020 & \code{fababean} & $1.676$ & $8{,}006$ & $50.0$ & $0.364$ \\
+2021 & \code{maize} & $2.429$ & $14{,}570$ & $50.0$ & $0.391$ \\
+\midrule
+mean & & $2.042$ & $10{,}683$ & $49.72$ & $0.3765$ \\
+\bottomrule
+\end{tabular}
+\caption{Annual values for the worked strategy (code output; the 2007 row matches Table~\ref{tab:y2007}).}
+\label{tab:years}
+\end{table}
+
+\textbf{Step 3: the five numbers.}
+\begin{equation}
+\begin{aligned}
+\bar Y &= 2.042\ \tha, \qquad \bar C = 0.3765\ \tCha,\\
+\bar L &= \frac{15\times50+45.512}{16}=\frac{795.512}{16}=49.72\ \kgNha,\\
+\bar V &= \frac{170{,}925.2}{16}=10{,}682.8\ \mxnha,\\
+\CVaR_{0.25} &= \frac{V_{2010}+V_{2011}+V_{2012}+V_{2008}}{4}\\
+ &=\frac{-1{,}726.85+3{,}695.48+6{,}937.05+7{,}546.86}{4}=\frac{16{,}452.54}{4}=4{,}113.14\ \mxnha .
+\end{aligned}
+\label{eq:worked}
+\end{equation}
+The code's \codeline{Planner.objectives("maize-fababean", 0.5, 0.5)} returns exactly these: yield $2.041985$, net $10{,}682.826$,
+N loss $49.7195$, carbon $0.376539$, bad-year income $4{,}113.135$. The worst four years are 2010 ($-1{,}727$), 2011, 2012 and 2008.
+
+\subsection{The difference method for N loss, and what it over- or understates}
+
+\emph{Code.} Equation~\eqref{eq:nloss} says: loss $=$ dose minus the \emph{extra} uptake caused by the fertilizer, where the
+no-fertilizer uptake $Q(0)$ is the same year and phase from the $s=0$ node. In 2018 the \emph{maize} phase took up
+$97.52$ against $88.54$ unfertilized, an extra $8.98$, so its loss was $80-8.98=71.02$ and the year's average is
+$(71.02+20)/2=45.51$. In every other year the uptake is identical with and without fertilizer, so the loss equals the dose.
+(\textbf{Correction}: the Markdown draft attributed this to the faba bean phase.)
+
+\emph{My reading} of what the figure measures:
+\begin{itemize}
+\item \textbf{Default world: a restatement of an assumption.} The simulator lets the crop reach only $50\%$ of applied N
+  (\codeline{N_RECOVERY = 0.5}); the crop then takes up essentially all of that half. So $L\approx(1-\mathrm{AR})\,D\approx0.495\,D$:
+  maize at $s=1$ loses $79.17$ of $160\,\kgNha$ ($0.495$).
+\item \textbf{Calibrated world: the dose, minus a few kilograms.} Maize at $s=1$ loses $152.18$ of $160$ ($0.951$). Decomposition: the
+  inaccessible half ($80$, lost by assumption) plus the accessible half the carbon-limited crop does not use
+  ($80-7.82=72.18$): $80+72.18=152.18$ (my arithmetic). Part of the unused half is not lost but stays as mineral N: at the start
+  of the 2021 season there are $68.7\,\kgNha$ more than at $s=0$, i.e.\ $2.8\%$ of the 16-year cumulative $2{,}435\,\kgNha$.
+\item \textbf{Fixed fractions, not weather.} The $0.5$ accessible fraction and the $0.5$ carry-over loss
+  (\code{N_CARRYOVER_LOSS}, :120) are constants. Leaching, volatilization, denitrification and N$_2$O are not
+  modelled separately, so the figure ranks strategies by dose and cannot be read as an environmental loss.
+\item \textbf{Sign unknown.} The first draft called it a lower bound; its sign relative to reality cannot be established from
+  this code, and the claim was removed.
+\item \textbf{The floor never binds.} $\max\{0,\cdot\}$ is active in $0$ of $6{,}528$ (phase, year, lattice scale) cells per
+  world (and in none of the $1{,}536$ raw grid nodes).
+\end{itemize}
+
+\subsection{The retention trade-off}
+
+Differentiating Equations~\eqref{eq:net} and \eqref{eq:carbon} in $r$, with $\bar S=\frac1{Tn_u}\sum_{t,u}S_{tu}$ the mean stover,
+\begin{equation}
+\frac{\partial\bar V}{\partial r}=-\pi_S\,\bar S,\qquad
+\frac{\partial\bar C}{\partial r}=+\phi\,\bar S,\qquad
+\frac{\partial\bar V/\partial r}{\partial\bar C/\partial r}=-\frac{\pi_S}{\phi}=-\frac{1000}{0.45}=-2{,}222\ \mathrm{MXN\,(t\,C)^{-1}}.
+\label{eq:carbonprice}
+\end{equation}
+Both objectives are exactly linear in $r$ and the implicit carbon price $\pi_S/\phi$ does not depend on the strategy. For the worked
+strategy $\bar S=1.1904\,\tha$, so going from $r=0$ to $r=1$ costs $1000\times1.1904=1{,}190.4\,\mxnha$ and gains
+$0.45\times1.1904=0.5357\,\tCha$:
+
+\begin{table}[h]
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$r$ & $\bar V$ ($\mxnha$) & $\bar C$ ($\tCha$) & $\CVaR_{0.25}$ ($\mxnha$) \\
+\midrule
+$0$ & $11{,}278.0$ & $0.1087$ & $4{,}612.0$ \\
+$0.5$ & $10{,}682.8$ & $0.3765$ & $4{,}113.1$ \\
+$1$ & $10{,}087.6$ & $0.6444$ & $3{,}614.3$ \\
+\bottomrule
+\end{tabular}
+\caption{Retention changes nothing in the simulation; it only moves stover between income and carbon.}
+\end{table}
+
+\subsection{Limiting cases and two caveats on grain and stover}
+
+\begin{itemize}
+\item $s=0$: $D=0$ and $Q=Q(0)$, so $L_t=0$ and no fertilizer is bought (test \code{tests/test_nsga_planner.py:85}).
+\item $r=1$: no stover income; $r=0$: carbon comes from roots alone. Both objectives are monotone in $r$, and $\bar Y,\bar L$ are non-decreasing in $s$ (checked on the whole lattice in both worlds, no violation).
+\item $\CVaR_{0.25}\le\bar V$ always (it is a mean of the lowest quarter); also checked on the lattice.
+\item Grain is dry matter but SIAP prices are on a reported (about $14\%$ moisture) basis, so revenue is understated by about $14\%$ for maize; second order.
+\item \finding{Default-world stover and roots are not capped like grain.} The grain-N rule (\code{wofost_rotations.py:312--313}) caps grain, and it binds in $88\%$
+  of default maize seasons at $s=0$ and $69\%$ at $s=1$ (never in the calibrated world). Stover and roots are not capped, so default maize gives
+  $15.96\,\tha$ of stover beside $6.34\,\tha$ of grain at $s=1$ (all maize seasons, 2006--2021). Stover income is $14{,}639\,\mxnha$,
+  $92\%$ of the default pure-maize net of $15{,}945$ at $s=0$. Every default-world money and carbon figure is inflated by this. Documented, not changed.
+\end{itemize}
+
+\section{Dominance, the lattice, brute force and how fronts are scored}
+\label{sec:dominance}
+
+\subsection{Pareto dominance}
+
+Write every strategy's objectives in minimization form $\mathbf f(x)=(f_1,\dots,f_M)$, where $f_i=\sigma_i\times$ natural value
+(\code{minimized}, :226--228). Strategy $x$ \emph{dominates} $x'$ when it is no worse everywhere and strictly better somewhere:
+\begin{equation}
+\mathbf f(x)\prec\mathbf f(x')\iff \forall i:\ f_i(x)\le f_i(x')\ \ \wedge\ \ \exists i:\ f_i(x)<f_i(x').
+\label{eq:dom}
+\end{equation}
+The \emph{Pareto front} is $\mathcal P=\{x\in\Omega:\ \nexists\,x'\in\Omega,\ \mathbf f(x')\prec\mathbf f(x)\}$. The code
+(\code{pareto_front}, :231--244) drops rows with identical objective vectors, then keeps the first non-dominated level of
+pymoo's \code{NonDominatedSorting}. Objectives are first rounded to $9$ decimals (\codeline{FRONT_DECIMALS}), for duplicates and for dominance; compared exactly,
+floating-point noise of order $10^{-16}$ decided dominance (Section~\ref{sec:artifact}).
+
+\subsection{The lattice and brute force}
+
+A strategy lives on the lattice $\Omega=\{\omega\}\times\{0.025\,a\}_{a=0}^{50}\times\{0.05\,b\}_{b=0}^{20}$, so
+\begin{equation}
+|\Omega| = 4\times51\times21 = 4{,}284 .
+\label{eq:lattice}
+\end{equation}
+\codeline{N_SCALE_STEPS = 50}, \codeline{RETENTION_STEPS = 20} (:64--65); \code{brute_force} (:258--263) scores every point:
+$0.26$\,s in total on this machine, about $60\,\mu$s per strategy (timing varies by machine). The lattice makes the box bounds
+ordinary values: real-coded NSGA reaches the bounds, where these nearly linear trade-offs have their optima, only slowly.
+Brute force makes the exact front known, so the search can be graded.
+
+\subsection{Why the five-objective front has 483 strategies (and the default one 1{,}377)}
+
+\textbf{Dominance resistance.} If objective values were independent continuous draws, two random points are mutually
+non-dominated with probability
+\begin{equation}
+P(\text{mutually non-dominated})=1-\frac{2}{2^{M}}:\quad M=2:\ 0.50,\quad M=3:\ 0.75,\quad M=5:\ 0.94 .
+\label{eq:resist}
+\end{equation}
+The objectives here are far from independent, but the lesson holds: with five objectives, almost nothing dominates
+anything. The calibrated front is $483/4{,}284=11.3\%$ of the lattice; the default front is $1{,}377/4{,}284=32.1\%$.
+The $483$ split into three blocks (composition computed by running \code{pareto_front} on the brute-force table):
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.15\linewidth}R{0.14\linewidth}R{0.16\linewidth}Y@{}}
+\toprule
+Rotation & Count & $s$ values & Why it is non-dominated \\
+\midrule
+maize & $231=11\times21$ & $0,0.025,\dots,0.25$ (11 values, the first cell) & Each $s$ step buys $+0.00117$ ($\tha$) of yield at $-90.7$ ($\mxnha$) of income and $+3.27$ ($\kgNha$) of N loss, so no step dominates another; the 21 retentions trade carbon against income and bad-year income. \\
+maize--barley & $231=11\times21$ & same & Dominated by pure maize in the four objectives without bad-year income (all $1{,}071$ of its strategies are). Survives only through bad-year income: $-1{,}343$ vs $-4{,}187$ ($\mxnha$) for maize at $s=0$, $r=0$. \\
+maize--faba bean & $21=1\times21$ & $0$ & $s=0$ is genuinely best on income, N loss and bad-year income. (Before the float fix $s=0.025$ also survived here through rounding noise; Section~\ref{sec:artifact}.) \\
+\bottomrule
+\end{tabularx}
+\caption{Composition of the calibrated five-objective exact front (483 strategies).}
+\label{tab:front504}
+\end{table}
+
+Inside the first cell $[0,0.25]$ the calibrated yield rises only from $2.3008$ to $2.3125\,\tha$ ($+0.0117$, $+0.5\%$) for $32.7\,\kgNha$
+more N lost and $907\,\mxnha$ less income. A $0.5\%$ slope is below the model's noise, so the size of the front is a metric artifact,
+not decision-relevant structure.
+
+\textbf{The concrete pair: maize versus maize--faba bean.}
+
+\begin{table}[h]
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Objective (calibrated) & maize, $s=0.25$, $r=0$ & maize--faba bean, $s=0$, $r=0$ \\
+\midrule
+yield $\bar Y$ ($\tha$) & $\mathbf{2.3125}$ & $2.0420$ \\
+net income $\bar V$ ($\mxnha$) & $4{,}988$ & $\mathbf{12{,}528}$ \\
+N lost $\bar L$ ($\kgNha$) & $32.7$ & $\mathbf{0}$ \\
+carbon input $\bar C$ ($\tCha$) & $\mathbf{0.1104}$ & $0.1087$ \\
+bad-year income $\CVaR_{0.25}$ ($\mxnha$) & $-5{,}187$ & $\mathbf{5{,}862}$ \\
+\bottomrule
+\end{tabular}
+\caption{Bold marks the winner on each objective. Each wins at least once, so by Equation~\eqref{eq:dom} neither dominates the other.}
+\end{table}
+
+Maize wins on yield (by $0.27\,\tha$) only as a tonnage gap: the faba bean partner yields $1.77\,\tha$ against maize's $2.32$, yet sells for about twice the
+price per tonne. It also wins on carbon by a trivial $0.0017\,\tCha$. Remove yield and the maize and
+maize--barley blocks collapse: of the $462$ non-faba members, $444$ become dominated, leaving $18$ (5 maize with $r\ge0.8$ and 13 maize--barley with $r\ge0.9$, kept by carbon input).
+(\textbf{Correction}: the Markdown draft said $374$ dominated and $88$ remaining; I could not reproduce that.)
+Dropping bad-year income instead gives the four-objective front of $252$ ($231$ maize and $21$ faba bean members, no maize--barley).
+
+\textbf{How big is the front at a decision-relevant resolution?} (my computation; the resolutions are my illustrative choice, not repository settings.)
+Round each objective to a grid $\varepsilon_i$ before testing dominance,
+\begin{equation}
+\begin{gathered}
+\hat f_i=\varepsilon_i\,\operatorname{round}\!\big(f_i/\varepsilon_i\big),\\
+\boldsymbol\varepsilon=\big(0.05\ \tha,\ 250\ \mxnha,\ 2\ \kgNha,\ 0.02\ \tCha,\ 250\ \mxnha\big),
+\end{gathered}
+\label{eq:eps}
+\end{equation}
+for (yield, income, N loss, carbon, bad-year income). The calibrated five-objective front then has $22$ strategies ($11$ maize, $9$ maize--faba bean, $2$ maize--barley); with the coarser $(0.1,\ 500,\ 5,\ 0.05,\ 500)$ it has $15$.
+The $483$ is therefore mostly resolution below any difference one could act on.
+
+\subsection{A floating-point artifact inside the front (found by review, fixed)}
+\label{sec:artifact}
+
+\finding{Before the fix, $21$ of the $504$ calibrated front members (and of the $273$-member four-objective front) were maize--faba bean at $s=0.025$,
+one for each retention. They were non-dominated only because their yield exceeded that at $s=0$ by $4.4\times10^{-16}\,\tha$.}
+The cause is Equation~\eqref{eq:interp}: for maize--faba bean, $X_0=X_1$ in exact arithmetic (yield and carbon do not respond),
+but $(1-w)X_0+wX_1$ is evaluated in floating point (\code{nsga_planner.py:142}) and lands one unit in the last place above $X_0$.
+Exact comparison in \code{pareto_front} then saw ``strictly better in yield'' and kept the point, although it is worse on income, N loss and bad-year income.
+
+\textbf{The fix.} \code{pareto_front} (\code{nsga_planner.py:231--244}) now rounds the minimization-form objectives to $9$ decimals before dropping duplicates and before testing dominance,
+and returns the rows with their unrounded values:
+\begin{equation}
+\hat f_i=10^{-9}\operatorname{round}\!\big(10^{9}f_i\big),\qquad x\prec x'\ \text{is tested on}\ \hat{\mathbf f}.
+\label{eq:tol}
+\end{equation}
+(\codeline{FRONT_DECIMALS = 9}, :66; tests \code{test_rounding_error_does_not_keep_a_strategy_on_the_front} and \code{test_front_rows_keep_their_unrounded_values}.)
+\textbf{What changed:} the calibrated five- and four-objective fronts are $483$ and $252$ instead of $504$ and $273$, the robust four-objective front is $1{,}727$ instead of $1{,}730$,
+and the final-population counts of the two calibrated NSGA-III runs fall to $118$ and $77$ (noise ties removed). The three-objective front ($26$), the default-world fronts ($1{,}377$)
+and the robust three-objective front ($738$) do not change.
+\textbf{One pick changed:} the calibrated sustainability-first pick on the exact front was maize--faba bean at $s=0.025$ (maize N $=4\,\kgNha$), one of the noise survivors; it is now $s=0$
+(N $=0$), with net income $11{,}457$ instead of $11{,}394\,\mxnha$ and N lost $0$ instead of about $2\,\kgNha$. The first review had said that no pick would change; that was wrong.
+
+\subsection{IGD+ and the hypervolume ratio}
+
+To grade a found set $\mathcal A$ against the exact front $\mathcal P$, \code{front_quality} (:329--345) first rescales both
+by the reference front's range, so that $\mathcal P$ spans $[0,1]$ on every objective:
+\begin{equation}
+\tilde{\mathbf f}=\big(\mathbf f-\mathbf z^{\mathrm{id}}\big)\oslash\big(\mathbf z^{\mathrm{nad}}-\mathbf z^{\mathrm{id}}\big),\qquad
+z^{\mathrm{id}}_i=\min_{\mathbf g\in\mathcal P}g_i,\quad z^{\mathrm{nad}}_i=\max_{\mathbf g\in\mathcal P}g_i ,
+\label{eq:rescale}
+\end{equation}
+where $\oslash$ is element-wise division (the span is replaced by 1 if zero). Then, with found points $\mathbf f\in\mathcal A$, reference points $\mathbf g\in\mathcal P$ and
+the hypervolume reference point $\mathbf z^{\mathrm{ref}}=1.1\cdot\mathbf 1$ (all rescaled),
+\begin{align}
+\mathrm{IGD}^+(\mathcal A,\mathcal P)&=\frac1{|\mathcal P|}\sum_{\mathbf g\in\mathcal P}\ \min_{\mathbf f\in\mathcal A}
+ \sqrt{\sum_{i=1}^{M}\max\{0,\ f_i-g_i\}^2},
+\label{eq:igd}\\
+\mathrm{HVR}(\mathcal A)&=\frac{\mathrm{HV}(\mathcal A)}{\mathrm{HV}(\mathcal P)},\qquad
+\mathrm{HV}(\mathcal X)=\operatorname{vol}_M\!\Big(\bigcup_{\mathbf f\in\mathcal X}\{\mathbf m:\ \mathbf f\le\mathbf m\le\mathbf z^{\mathrm{ref}}\}\Big).
+\label{eq:hvr}
+\end{align}
+IGD+ (inverted generational distance plus; dimensionless after rescaling) is the mean, over the reference points, of how far the
+nearest found point is from \emph{weakly dominating} that reference point: a found point at least as good on every objective
+contributes $0$. The hypervolume $\mathrm{HV}$ is the $M$-dimensional volume $\operatorname{vol}_M$ of the region dominated by the set
+and bounded by $\mathbf z^{\mathrm{ref}}$.
+
+\textbf{Tiny hand example} ($M=2$: N loss in $\kgNha$ and net income in $\mxnha$). Reference front: $(0,1000)$, $(40,3000)$, $(80,5000)$.
+Ideal and nadir in minimization form are $(0,-5000)$ and $(80,-1000)$, so the rescaled reference points are
+$(0,1)$, $(0.5,0.5)$, $(1,0)$. Found set $\mathcal A$: the two end points $(0,1)$ and $(1,0)$.
+\begin{equation}
+\begin{aligned}
+\mathrm{IGD}^+ &= \frac{0+\sqrt{0^2+\max\{0,1-0.5\}^2}+0}{3}=\frac{0.5}{3}=0.1667,\\
+\mathrm{HV}(\mathcal P) &= \underbrace{0.5\times0.1}_{x\in[0,0.5]}+\underbrace{0.5\times0.6}_{x\in[0.5,1]}+\underbrace{0.1\times1.1}_{x\in[1,1.1]}=0.05+0.30+0.11=0.46,\\
+\mathrm{HV}(\mathcal A) &= 1\times0.1+0.1\times1.1=0.21,\qquad \mathrm{HVR}=\frac{0.21}{0.46}=0.4565 .
+\end{aligned}
+\label{eq:toyigd}
+\end{equation}
+\code{front_quality} returns $0.16667$ and $0.45652$ on these data (run). If $\mathcal A$ is better than $\mathcal P$
+the ratio exceeds $1$ and IGD+ is $0$ (e.g.\ adding $(20,3500)$ and $(40,4000)$ gives $\mathrm{HVR}=1.61$).
+
+\textbf{What they reward and hide.} IGD+ rewards covering \emph{every} reference point and ignores surplus points; the hypervolume ratio is dominated by the largest region, so a thin missing tail can cost little.
+Neither says whether a missing point matters for a decision, and both depend on the reference front, which here includes the $21$ noise points above.
+\textbf{Naive baseline}: Table~\ref{tab:random} compares NSGA with a uniform random sample of the same number of lattice points.
+
+\section{NSGA-II and NSGA-III in this code}
+\label{sec:nsga}
+
+\textbf{Plain language.} NSGA (Non-dominated Sorting Genetic Algorithm) keeps a population of candidate strategies. Each
+generation it breeds children by recombining and perturbing parents, then keeps the best half of parents plus children,
+where ``best'' means (a) lower in the dominance order and (b) spread out along the front. NSGA-II measures spread with a
+neighbor-gap statistic (crowding distance); NSGA-III, used from four objectives, measures it by how many members sit near each of a fixed
+set of reference directions. The code (\code{optimize}, :266--326) uses NSGA-II for $M\le3$ and NSGA-III for $M\ge4$ (:308, :315).
+
+\subsection{Encoding}
+
+A candidate is three genes: \code{rotation} (a categorical choice of 4), \code{n_step} $a\in\{0,\dots,50\}$ and \code{r_step}
+$b\in\{0,\dots,20\}$ (integers), decoded by \code{decode} (:292--294) to
+\begin{equation}
+s=0.025\,a,\qquad r=0.05\,b,\qquad f_i=\sigma_i\,f_i^{\mathrm{nat}}(\omega,s,r)\quad(\text{minimized, :305}).
+\label{eq:encode}
+\end{equation}
+Every evaluation calls \code{Planner.objectives} (about $60$--$120\,\mu$s), so a run of $150$ generations takes $3$--$15$\,s.
+
+\subsection{Non-dominated sorting and ranks}
+
+Level $\mathcal F_1$ is the set of non-dominated members; remove it and the non-dominated members of the rest form $\mathcal F_2$, and so on.
+Equivalently, the rank of $x$ is the length of the longest dominance chain ending in $x$.
+
+\begin{table}[h]
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Toy point & A & B & C & D & E & F \\
+$(f_1,f_2)$ & $(1,5)$ & $(2,3)$ & $(4,1)$ & $(2,5)$ & $(3,4)$ & $(5,5)$ \\
+\midrule
+Dominated by & --- & --- & --- & A, B & B & A, B, C, D, E \\
+Level & $\mathcal F_1$ & $\mathcal F_1$ & $\mathcal F_1$ & $\mathcal F_2$ & $\mathcal F_2$ & $\mathcal F_3$ \\
+\bottomrule
+\end{tabular}
+\caption{A toy sort. pymoo's \code{NonDominatedSorting} returns the same levels (run).}
+\end{table}
+
+\subsection{Crowding distance}
+
+Within one level, sort the members by each objective $i$. A member's crowding distance is the average, over objectives,
+of the normalized gap between its two neighbors (boundary members get $+\infty$, so extremes are always kept):
+\begin{equation}
+\mathrm{cd}(n)=\frac1M\sum_{i=1}^{M}\frac{f_i^{(n^+)}-f_i^{(n^-)}}{f_i^{\max}-f_i^{\min}},
+\label{eq:cd}
+\end{equation}
+where $n^-$ and $n^+$ are the neighbors of $n$ in the order sorted by $f_i$ and the $f_i^{\max/\min}$ are taken over the level.
+\textbf{Toy}: points $(0,4)$, $(0.5,3)$, $(2,1)$, $(4,0)$, both ranges $=4$.
+\begin{equation}
+\begin{aligned}
+\mathrm{cd}\big((0.5,3)\big)&=\tfrac12\Big(\tfrac{2-0}{4}+\tfrac{4-1}{4}\Big)=\tfrac12(0.5+0.75)=0.625,\\
+\mathrm{cd}\big((2,1)\big)&=\tfrac12\Big(\tfrac{4-0.5}{4}+\tfrac{3-0}{4}\Big)=\tfrac12(0.875+0.75)=0.8125 .
+\end{aligned}
+\end{equation}
+The less crowded $(2,1)$ is preferred; pymoo's \code{calc_crowding_distance} returns the same values (run).
+
+\subsection{NSGA-II selection and survival (\texorpdfstring{$M\le3$}{M at most 3})}
+
+\textbf{Binary tournament} (\code{binary_tournament} with \code{comp_by_dom_and_crowding}, :309--314): draw two individuals; if one
+dominates the other it wins, otherwise the one with larger $\mathrm{cd}$ wins (random on ties). \textbf{Survival}
+(\code{RankAndCrowding}): merge the $n_{\mathrm{pop}}$ parents and $n_{\mathrm{pop}}$ children ($2n_{\mathrm{pop}}$), fill the next generation level by level, and truncate
+the level that does not fit by decreasing $\mathrm{cd}$. Population $100$.
+
+\subsection{Variation on mixed variables}
+
+\emph{Code} (pymoo $0.6.2$, \code{pymoo/core/mixed.py}, read in the installed source): the two integer genes are crossed together with
+SBX and mutated with PM, both followed by rounding to the nearest integer; the rotation gene is crossed with uniform crossover and mutated by
+random choice. Duplicates (exactly equal genes) are removed.
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}l l Y Y@{}}
+\toprule
+Gene & Type & Crossover & Mutation \\
+\midrule
+\code{n_step}, \code{r_step} & Integer & SBX, $\eta_c=15$, applied with probability $0.9$ per mating, then each gene crossed with probability $0.5$; rounded & PM, $\eta_m=20$, per individual $0.9$, per gene $0.5$; rounded \\
+\code{rotation} & Choice (4) & uniform crossover: genes swapped with probability $0.5$ & redraw uniformly over the 4 options with probability $0.5$ (mutation probability $1.0$ per individual) \\
+\bottomrule
+\end{tabularx}
+\caption{Operators and their defaults as found in the pymoo source. The NSGA-III defaults (\code{SBX(eta=30)}) are overridden by \code{MixedVariableMating}.}
+\end{table}
+
+\textbf{SBX} (simulated binary crossover, bounded form as implemented). For one gene with bounds $[y_{\min},y_{\max}]$, parents $y_1<y_2$,
+gap $\Delta_y=y_2-y_1$ and a uniform draw $\zeta\in(0,1)$ shared by both children, the children $y_1',y_2'$ are
+\begin{equation}
+\begin{aligned}
+\beta_L&=1+\tfrac{2(y_1-y_{\min})}{\Delta_y},\quad A_L=2-\beta_L^{-(\eta_c+1)},\quad
+\beta_q=\begin{cases}(\zeta A_L)^{\frac1{\eta_c+1}}, & \zeta\le 1/A_L,\\[2pt] (2-\zeta A_L)^{-\frac1{\eta_c+1}}, & \text{otherwise},\end{cases}\\
+y_1'&=\tfrac12\big[(y_1+y_2)-\beta_q\,\Delta_y\big],\qquad
+y_2'=\tfrac12\big[(y_1+y_2)+\beta_q'\,\Delta_y\big],
+\end{aligned}
+\label{eq:sbx}
+\end{equation}
+where $\beta_q'$ is $\beta_q$ computed from $\beta_U=1+2(y_{\max}-y_2)/\Delta_y$ instead of $\beta_L$.
+\textbf{Toy}: parents $y_1=10$, $y_2=30$ on $[0,50]$, $\zeta=0.3$, $\eta_c=15$: $\beta_L=2$, $A_L=1.99998$, $\beta_q=0.96858$, so $y_1'=10.314$ and
+$y_2'=29.686$ (pymoo's own \code{cross_sbx} with that draw gives $10.3142$ and $29.6858$). After rounding the children are $10$ and $30$: the crossover
+changed nothing. By simulation of pymoo's operator, with parents $20$ steps apart the children equal the parents after rounding with probability
+$0.55$, and with parents $2$ steps apart with probability $0.999$. So once the population converges, SBX with $\eta_c=15$ plus rounding is nearly a no-op
+and exploration comes from mutation.
+
+\textbf{PM} (polynomial mutation). For a gene value $y$ with $\xi_1=(y-y_{\min})/(y_{\max}-y_{\min})$, $\xi_2=(y_{\max}-y)/(y_{\max}-y_{\min})$ and a uniform draw $\zeta$:
+\begin{equation}
+\xi_q=\begin{cases}\big[2\zeta+(1-2\zeta)(1-\xi_1)^{\eta_m+1}\big]^{\frac1{\eta_m+1}}-1, & \zeta\le\tfrac12,\\[3pt]
+1-\big[2(1-\zeta)+2(\zeta-\tfrac12)(1-\xi_2)^{\eta_m+1}\big]^{\frac1{\eta_m+1}}, & \zeta>\tfrac12,\end{cases}
+\qquad y'=y+\xi_q\,(y_{\max}-y_{\min}).
+\label{eq:pm}
+\end{equation}
+\textbf{Toy}: $y=10$ on $[0,50]$, $\eta_m=20$, $\zeta=0.2$: $\xi_1=0.2$, $(0.8)^{21}=0.00922$, bracket $=0.4+0.6\times0.00922=0.40553$,
+$\xi_q=0.40553^{1/21}-1=-0.04207$, $y'=10-0.04207\times50=7.897\to8$ (pymoo: $7.8966$). Over many draws from $y=10$ the rounded move has mean size
+$2.2$ steps; $19\%$ of mutations round back to $10$ and $66\%$ stay within $\pm2$.
+
+\subsection{NSGA-III: reference directions, association, niching}
+
+\textbf{Das--Dennis reference directions.} With $M$ objectives and $p$ partitions per axis, the reference directions are the points of the unit simplex whose coordinates are multiples of $1/p$:
+\begin{equation}
+\mathcal W=\Big\{\boldsymbol\psi=\tfrac1p(k_1,\dots,k_M):\ k_i\in\mathbb N_0,\ \sum_{i=1}^M k_i=p\Big\},\qquad
+H=|\mathcal W|=\binom{p+M-1}{M-1}.
+\label{eq:dd}
+\end{equation}
+For example $M=3$, $p=3$ gives $\binom52=10$ directions, from $(0,0,1)$ through $(\tfrac13,\tfrac13,\tfrac13)$ to $(1,0,0)$. The three cases used here
+(\code{optimize}, :316--317) are, with the population size defaulting to $H$:
+
+\begin{table}[h]
+\begin{tabular}{@{}lccccl@{}}
+\toprule
+Run & $M$ & $p$ & $H=\binom{p+M-1}{M-1}$ & Population & Where \\
+\midrule
+4 objectives (default) & 4 & 6 & $\binom93=84$ & 84 & \codeline{{4: 6, 5: 5}} at :316 \\
+5 objectives (default) & 5 & 5 & $\binom94=126$ & 126 & same \\
+robust, 4 objectives & 4 & 10 & $\binom{13}3=286$ & 286 & \codeline{--partitions 10} \\
+\bottomrule
+\end{tabular}
+\caption{Reference directions (counts confirmed by calling pymoo's \code{get_reference_directions}).}
+\end{table}
+
+\textbf{Normalization, association, niching} (\code{ReferenceDirectionSurvival}, read in the installed pymoo). Each generation the
+objectives are mapped to $\tilde f_i=(f_i-z_i^{\mathrm{id}})/(a_i-z_i^{\mathrm{id}})$, with $z^{\mathrm{id}}$ the running ideal point and $a_i$ the
+intercepts of the hyperplane through the extreme points (falling back to the worst value on the first level). Each member is associated with the reference ray at
+the smallest perpendicular distance
+\begin{equation}
+d_\perp(\tilde{\mathbf f},\boldsymbol\psi)=\Big\|\tilde{\mathbf f}-\frac{\boldsymbol\psi^{\!\top}\tilde{\mathbf f}}{\boldsymbol\psi^{\!\top}\boldsymbol\psi}\,\boldsymbol\psi\Big\|_2 ,\qquad
+h(\tilde{\mathbf f})=\arg\min_{\boldsymbol\psi\in\mathcal W}d_\perp(\tilde{\mathbf f},\boldsymbol\psi),
+\label{eq:perp}
+\end{equation}
+and each ray $\boldsymbol\psi_h$ has a niche count $\nu_h$ (members of the already accepted levels associated with it). The splitting level is filled by repeatedly
+picking the niche with the smallest $\nu_h$ among those that still have candidates: if $\nu_h=0$ take the candidate with the smallest $d_\perp$, otherwise a random one.
+\textbf{Toy} ($M=2$, $p=2$, so $H=3$ rays $(1,0)$, $(\tfrac12,\tfrac12)$, $(0,1)$; point $\tilde{\mathbf f}=(0.6,0.2)$, $|\tilde{\mathbf f}|^2=0.40$):
+\begin{equation}
+\begin{aligned}
+d_\perp(\cdot,(1,0))&=\sqrt{0.40-0.6^2}=0.200,\qquad
+d_\perp(\cdot,(\tfrac12,\tfrac12))=\sqrt{0.40-\big(\tfrac{0.8}{\sqrt2}\big)^2}=\sqrt{0.08}=0.283,\\
+d_\perp(\cdot,(0,1))&=\sqrt{0.40-0.2^2}=0.600 ,
+\end{aligned}
+\end{equation}
+so the point belongs to the first niche. Selection for mating is a random tournament (\code{comp_by_cv_then_random}: with no constraints it picks one of the
+two at random), so all selection pressure comes from survival.
+
+\textbf{Why NSGA-III from four objectives.} With many objectives most of a population is mutually non-dominated, so ranks stop discriminating and a
+neighbor-gap statistic stops being meaningful. Evidence in this repository: in all five NSGA-III runs of Table~\ref{tab:bug} the final
+population is almost entirely non-dominated ($84$, $126$ and $286$ members for the default and robust runs; $77$ and $118$ of $84$ and $126$ for the calibrated runs once noise ties are removed), and on the test fixture all $462$ strategies are mutually non-dominated
+(\code{tests/test_nsga_planner.py:199--204}). That the replacement works better than NSGA-II would here is the standard argument (Deb and Jain, 2014); I did not
+run NSGA-II with $M\ge4$. The normalization looked sound on the calibrated four-objective run (100 generations, seed 1): the ideal point matched the exact front's
+exactly and the nadir was close ($36.6$ against $32.7\,\kgNha$ for N loss).
+
+\subsection{The reporting bug that was fixed: \texorpdfstring{\code{result.X}}{result.X} versus the final population}
+
+\emph{Code, before.} \code{optimize} returned pymoo's \code{result.X}. For NSGA-III, pymoo's \code{_set_optimum} sets this to
+\code{survival.opt}: the first-level members that are, for some \emph{occupied} reference direction, the closest to that ray. Hence
+\begin{equation}
+\big|\texttt{result.X}\big|\ \le\ \Big|\big\{h(\tilde{\mathbf f}_n):\ n\in\text{merged population}\big\}\Big|
+\label{eq:occ}
+\end{equation}
+(the number of occupied niches, i.e.\ reference rays that are the nearest ray of at least one member), regardless of how many non-dominated strategies the population holds. \emph{Code, now}
+(:323--326): \code{result.pop} is decoded and reduced to its non-dominated set. Re-running the documented commands (seed $1$):
+
+\begin{table}[h]
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+ & & \multicolumn{2}{c}{\code{result.X} (before)} & \multicolumn{2}{c}{final population (now)} & \multicolumn{2}{c}{all evaluated} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(l){7-8}
+Run (generations, $H$) & Exact & count & HVR & count & HVR & unique & HVR \\
+\midrule
+calibrated 4 obj (200, 84) & 252 & 18 & 0.937 & 77 & 0.981 & 1{,}485 & 1.000 \\
+calibrated 5 obj (150, 126) & 483 & 16 & 0.888 & 118 & 0.985 & 1{,}624 & 1.000 \\
+default 4 obj (200, 84) & 1{,}377 & 23 & 0.908 & 84 & 0.954 & 3{,}341 & 1.000 \\
+default 5 obj (150, 126) & 1{,}377 & 22 & 0.925 & 126 & 0.965 & 3{,}248 & 0.999 \\
+robust 4 obj (150, 286) & 1{,}727 & 45 & 0.927 & 286 & 0.977 & 4{,}246 & 1.000 \\
+\bottomrule
+\end{tabular}
+\caption{Coverage by hypervolume ratio (Equation~\eqref{eq:hvr}) before and after the fix. ``All evaluated'': non-dominated set of every distinct lattice point the run evaluated.
+The ``now'' columns equal the saved \code{run.json} values (e.g.\ $0.9850$, $0.9809$, $0.9544$).}
+\label{tab:bug}
+\end{table}
+
+The count returned equals the number of occupied niches in every run ($18/84$, $16/126$, $23/84$, $22/126$, $45/286$; I read the niche of each final member),
+so $4$--$8$ population members pile into each occupied niche. The search was never deficient: the final population already holds $95$--$98.5\%$ of the
+hypervolume, and the archive of everything evaluated recovers essentially the whole front. What limits the returned front is the population cap
+($77$--$286$ returned against fronts of $252$--$1{,}727$; the two calibrated counts are below the population size because noise ties are removed). IGD+ before $\to$ now: $0.016\to0.006$, $0.018\to0.005$, $0.048\to0.029$, $0.061\to0.030$, $0.037\to0.016$.
+
+
+\textbf{NSGA-II on three objectives.} It is exact when the front fits in the population ($26$ of $26$, seeds 1--3, IGD+ $0$) and otherwise keeps
+$0.965$--$0.973$ of the hypervolume (default, $1{,}377$ exact points, population $100$; IGD+ $0.023$--$0.025$).
+
+\subsection{Is the search worth it at this size? A naive baseline}
+
+\begin{table}[h]
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lrcccr@{}}
+\toprule
+Run & Evaluated & Returned & Archive & Random & Exact \\
+\midrule
+calibrated 4 obj & 1{,}485 (35\% of 4{,}284) & 0.981 & 1.000 & 0.9665 & 252 \\
+calibrated 5 obj & 1{,}624 (38\%) & 0.985 & 1.000 & 0.9661 & 483 \\
+default 4 obj & 3{,}341 (78\%) & 0.954 & 1.000 & 0.9983 & 1{,}377 \\
+default 5 obj & 3{,}248 (76\%) & 0.965 & 0.999 & 0.9985 & 1{,}377 \\
+robust 4 obj & 4{,}246 (99\%) & 0.977 & 1.000 & 0.9999 & 1{,}727 \\
+\bottomrule
+\end{tabular}
+\caption{Hypervolume ratio for NSGA's \emph{returned} final population, NSGA's \emph{archive} (everything evaluated), and a uniform random sample of the same number of lattice points (``Random'': mean of 10 draws, my run); ``Exact'' is the exact front size.
+The returned set is capped by the population size, a random sample's is not, so compare the archive with the random column.}
+\label{tab:random}
+\end{table}
+
+NSGA beats random sampling at equal evaluation count only where the front is small (calibrated), and it visits $35$--$99\%$ of the lattice, so against brute force
+(all $4{,}284$ in $0.26$\,s) it saves nothing. Its role here is a check of the machinery, which would earn its keep only in a much larger decision space.
+\textbf{Why a lattice} (versus the earlier real-coded genes). I re-ran an emulation of the real-coded variant: on the test fixture (population and generations $40$) IGD+ was $0.098$, $0.172$, $0.133$ for seeds 1--3;
+on the real data (population 100, 100 generations) $0.010$--$0.011$ (calibrated) and $0.018$--$0.020$ (default), against $0.000$ and $0.023$--$0.025$ on the lattice. The lattice matters at small budgets and is a wash on the real problem.
+
+\section{The compromise picker \texorpdfstring{\code{choose}}{choose}: weighted Chebyshev}
+\label{sec:choose}
+
+\textbf{Plain language.} A front of hundreds of strategies is not a decision. \code{choose} (:348--358) returns the front member that is
+closest to the ``utopia'' point (best value of every objective on that front) after each objective is rescaled to $[0,1]$ and weighted.
+Distance is the \emph{largest} weighted shortfall, so the pick is the strategy whose worst weighted objective is least bad.
+
+\subsection{The equation}
+
+For a front with members $n=1,\dots,|\mathcal P|$ and minimization-form values $f_{ni}$,
+\begin{equation}
+\begin{gathered}
+\tilde f_{ni}=\frac{f_{ni}-\min_{n'}f_{n'i}}{\max_{n'}f_{n'i}-\min_{n'}f_{n'i}}\in[0,1],\qquad
+\lambda_i=\frac{v_i}{\sum_{i'}v_{i'}},\\
+\gamma_n=\max_{i}\ \lambda_i\,\tilde f_{ni},\qquad
+n^\ast=\arg\min_n\gamma_n .
+\end{gathered}
+\label{eq:cheb}
+\end{equation}
+Here $\tilde f_{ni}$ is a dimensionless shortfall ($0$ = best on the front, $1$ = worst), $v_i$ are the user's weights (:85--88), $\lambda_i$ their normalization and
+$\gamma_n$ is the score (smaller is better). Code: the whole of Equation~\eqref{eq:cheb} is the single expression at :358, with the
+span replaced by $1$ when an objective is constant on the front (:356). The ranges come from \emph{the front that is passed in}.
+
+\textbf{Toy.} Front (yield, N loss) $=(3,100)$, $(2,50)$, $(1,0)$, weights $0.6$ (yield) and $0.4$ (N loss); yield is maximized, so $f_1=-3,-2,-1$:
+\begin{equation}
+\tilde{\mathbf f}=\begin{pmatrix}0&1\\0.5&0.5\\1&0\end{pmatrix},\quad
+\gamma=\begin{pmatrix}\max(0.6\cdot0,\ 0.4\cdot1)\\ \max(0.6\cdot0.5,\ 0.4\cdot0.5)\\ \max(0.6\cdot1,\ 0.4\cdot0)\end{pmatrix}
+=\begin{pmatrix}0.4\\0.3\\0.6\end{pmatrix}\ \Rightarrow\ n^\ast=2\ (\text{the middle one}).
+\end{equation}
+\code{choose} returns index $1$ (zero-based), as it should (also \code{tests/test_nsga_planner.py:290--295}).
+
+\textbf{Assumptions.} A Chebyshev score can reach non-convex parts of a front, unlike a weighted sum, and the weights are importance judgments
+($0.30$ carbon, $0.20$ bad-year income, $0.20$ N loss, $0.20$ income, $0.10$ yield for ``sustainability first''). But it uses only the single binding objective of each member.
+
+\subsection{Why picks are unstable}
+
+\begin{enumerate}
+\item \textbf{Only the binding objective counts.} On the exact robust four-objective front ($1{,}727$ strategies), ``sustainability-first'' scores
+  $0.1065$ at maize N $=128$, $0.1066$ at $124$, $0.1067$ at $120$ and $0.1082$ at $88\,\kgNha$, all bound by the carbon shortfall; $36$ members score within $0.01$ of the
+  best, spanning $0$--$140\,\kgNha$. The dose is decided in the fourth decimal.
+\item \textbf{Ties are broken by row order.} In ``profit-first'' on the same front, $547$ members tie at exactly the minimum score $0.2462$ because the same
+  yield term binds for all of them, and \code{np.argmin} returns the first row (maize N $=4\,\kgNha$).
+\item \textbf{Ranges come from the front itself.} The pick moves when the front is sampled instead of exact (Table~\ref{tab:picks}).
+\item \textbf{Range normalization amplifies trivia.} On the calibrated exact front the yield range is $2.042$--$2.3125\,\tha$ and income $1{,}824$--$12{,}528\,\mxnha$:
+\end{enumerate}
+
+\begin{table}[h]
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+Strategy & & income & yield & bad-year & N loss & carbon \\
+ & weight $\lambda_i$ & $0.40$ & $0.30$ & $0.10$ & $0.10$ & $0.10$ \\
+\midrule
+maize, $s=0$, $r=0$ & $\tilde f_{ni}$ & $0.620$ & $0.043$ & $0.813$ & $0$ & $0.998$ \\
+(income $5{,}895$) & $\lambda_i\tilde f_{ni}$ & $0.248$ & $0.013$ & $0.081$ & $0$ & $0.100$ \\
+ & $\gamma_n=\max$ & \multicolumn{5}{l}{$\mathbf{0.248}$ (income binds)} \\
+\midrule
+maize--faba bean, $s=0$, $r=0$ & $\tilde f_{ni}$ & $0$ & $1.000$ & $0$ & $0$ & $1.000$ \\
+(income $12{,}528$) & $\lambda_i\tilde f_{ni}$ & $0$ & $0.300$ & $0$ & $0$ & $0.100$ \\
+ & $\gamma_n=\max$ & \multicolumn{5}{l}{$0.300$ (yield binds)} \\
+\bottomrule
+\end{tabular}
+\caption{Why ``profit-first'' picks pure maize on the calibrated exact front. For maize--faba bean, $\tilde f_{n,\mathrm{yield}}=(2.3125-2.042)/(2.3125-2.042)=1$.}
+\end{table}
+
+``Profit-first'' gives up $1-5{,}895/12{,}528=53\%$ of attainable income to avoid a $0.26\,\tha$ tonnage gap that is mostly an artifact of averaging maize and faba bean tonnes.
+
+\begin{table}[h]
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Front & Weights & Exact-front pick & NSGA-front pick \\
+\midrule
+calibrated (5 obj) & sustainability & mf, $N=0$, $r=0.90$ & mf, $N=0$, $r=0.95$ \\
+ & profit & mz, $N=0$, $r=0$ & mz, $N=0$, $r=0$ \\
+default (5 obj) & sustainability & mf, $N=136$, $r=1.00$ & mf, $N=124$, $r=1.00$ \\
+ & profit & mf, $N=156$, $r=0.75$ & mf, $N=152$, $r=0.75$ \\
+robust (4 obj) & sustainability & mf, $N=128$, $r=1.00$ & mf, $N=104$, $r=1.00$ \\
+ & profit & mf, $N=4$, $r=0$ (first of 547 ties) & mf, $N=8$, $r=0.10$ \\
+\bottomrule
+\end{tabular}
+\caption{Compromise picks; mf = maize--faba bean, mz = maize, $N$ = maize N in $\kgNha$. Exact fronts: the saved \code{brute_force_front.csv}; NSGA: the saved \code{front.csv}.}
+\label{tab:picks}
+\end{table}
+
+\textbf{Takeaway.} Use the picks to see the trade-offs, not as findings; in a space this small choose from the brute-force front, and report the shortlist around the pick.
+
+\section{The robust planner \texorpdfstring{\code{RobustPlanner}}{RobustPlanner}}
+\label{sec:robust}
+
+\textbf{Plain language.} The default and calibrated parameter sets disagree completely about what nitrogen buys, and the
+default world's money is about $8\times$ larger. The robust planner scores a strategy in \emph{both} worlds, measures in each world how far it is from the best
+attainable value of that objective as a share of that world's range, and keeps the \emph{worse} of the two. A strategy is robust if it is never far from the best in
+either world (a minimax-regret flavour).
+
+\subsection{The equations}
+
+Let $f_i^{(\theta)}(x)$ be objective $i$ of strategy $x$ in world $\theta\in\{\mathrm{def},\mathrm{cal}\}$, in minimization form. Over the lattice $\Omega$ of that world,
+\begin{equation}
+\begin{aligned}
+z_i^{(\theta)}&=\min_{x'\in\Omega}f_i^{(\theta)}(x'),
+&\Delta_i^{(\theta)}&=\max_{x'\in\Omega}f_i^{(\theta)}(x')-z_i^{(\theta)},\\
+\delta_i^{(\theta)}(x)&=\frac{f_i^{(\theta)}(x)-z_i^{(\theta)}}{\Delta_i^{(\theta)}},
+&\rho_i(x)&=\max_{\theta}\ \delta_i^{(\theta)}(x).
+\end{aligned}
+\label{eq:robust}
+\end{equation}
+$\delta_i^{(\theta)}\in[0,1]$ is the shortfall (dimensionless; $0$ = the best attainable in that world, $1$ = the worst) and $\rho_i$ is the robust objective, always
+minimized (named \code{shortfall_<objective>}). Code: $z$ is \code{self.best[world]} (:211) and $\Delta$ is \code{self.span[world]} (:212, set to $1$ if constant); the division is at :220--221 and the maximum over worlds at :222;
+the lattice values come from \code{brute_force} per world (:210). The same search machinery then runs on $\rho_1,\dots,\rho_M$. Tests: \code{tests/test_nsga_planner.py:224--246}.
+
+\subsection{A worked strategy in both worlds}
+
+Strategy: maize--faba bean, $s=0.55$ (maize N $=88\,\kgNha$), $r=0$. World constants: net income best/span (def) $106{,}995.47$ / $105{,}689.30$ and (cal) $12{,}528.02$ / $13{,}454.44\,\mxnha$.
+
+\begin{equation}
+\begin{aligned}
+\delta^{\mathrm{def}}_{\text{income}}&=\frac{106{,}995.47-95{,}902.38}{105{,}689.30}=\frac{11{,}093.09}{105{,}689.30}=0.1050,\\
+\delta^{\mathrm{cal}}_{\text{income}}&=\frac{12{,}528.02-11{,}153.02}{13{,}454.44}=\frac{1{,}375.00}{13{,}454.44}=0.1022,\\
+\delta^{\mathrm{def}}_{\text{N loss}}&=\frac{27.276-0}{98.940}=0.2757,\qquad
+\delta^{\mathrm{cal}}_{\text{N loss}}=\frac{54.720-0}{192.178}=0.2847 .
+\end{aligned}
+\end{equation}
+
+\begin{table}[h]
+\begin{tabular}{@{}lrcrcc@{}}
+\toprule
+Objective & default value & $\delta^{\mathrm{def}}$ & calibrated value & $\delta^{\mathrm{cal}}$ & $\rho=\max$ (world) \\
+\midrule
+net income ($\mxnha$) & $95{,}902$ & $0.1050$ & $11{,}153$ & $0.1022$ & $0.1050$ (def) \\
+N loss ($\kgNha$) & $27.3$ & $0.2757$ & $54.7$ & $0.2847$ & $0.2847$ (cal) \\
+yield ($\tha$) & $7.12$ & $0.2330$ & $2.04$ & $0.7808$ & $0.7808$ (cal) \\
+carbon input ($\tCha$) & $1.07$ & $0.9859$ & $0.109$ & $1.0000$ & $1.0000$ (cal) \\
+bad-year income ($\mxnha$) & $87{,}750$ & $0.0090$ & $4{,}487$ & $0.0840$ & $0.0840$ (cal) \\
+\bottomrule
+\end{tabular}
+\caption{The five shortfalls of the worked strategy (code output matches the hand values in the first two rows exactly).}
+\end{table}
+
+\subsection{Why range normalization, and its weaknesses}
+
+The worlds' money differs about $8\times$ (best income $106{,}995$ versus $12{,}528\,\mxnha$), so raw regret in pesos would let the default world decide everything; dividing by each world's range
+puts both on $[0,1]$. But:
+\begin{itemize}
+\item \textbf{Narrow ranges inflate trivia.} The calibrated yield span is $0.346\,\tha$ ($1.966$--$2.312$) against $6.78$ in the default world, so any change of rotation reads as a huge
+  shortfall ($0.78$ wherever faba bean is in the rotation). Leave yield out of the robust objectives unless tonnage matters.
+\item \textbf{Spans include dominated corners.} The calibrated N-loss span is $192\,\kgNha$ (maize at $s=1.25$, $200\,\kgNha$ dose), while the worst N loss on the exact front is $32.7$. N-loss shortfalls
+  therefore depend on the arbitrary grid upper bound of $1.25$.
+\item \textbf{The ideal point is per objective}, so it is not jointly attainable; and weighing the two worlds equally is a modelling choice, not a probability.
+\end{itemize}
+
+\subsection{The minimax dose, derived}
+
+Fix the rotation (maize--faba bean) and $r=0$, and vary maize N $=N$. Let $\bar V^\ast_\theta$ be the best mean income in world $\theta$ and
+$R_\theta(N)=\bar V^\ast_\theta-\bar V_\theta(N)$ the regret in pesos ($\mxnha$). Whatever the normalizer $\kappa_\theta$ (range, best income, or $1$), the income shortfall is $R_\theta/\kappa_\theta$.
+\begin{itemize}
+\item \textbf{Calibrated world:} yield does not respond, so income is exactly linear in the dose. The phase-average dose is $\mu N$ with $\mu=(1+\tfrac{40}{160})/2=0.625$, hence
+  $R_{\mathrm{cal}}(N)=m_{\mathrm{cal}}N$ with $m_{\mathrm{cal}}=\pi_N\mu=25\times0.625=15.625\ \mxnkgN$ (check: at $88$, $15.625\times88=1{,}375.0$, as above).
+\item \textbf{Default world:} income rises with the dose and is best at $N=200$, so the regret falls from $R_{\mathrm{def}}(0)$ to $0$ at an average slope $m_{\mathrm{def}}$ (cell slopes $85$ to $107$):
+\end{itemize}
+\begin{equation}
+\begin{aligned}
+R_{\mathrm{def}}(0)&=106{,}995.47-87{,}966.19=19{,}029.28\ \mxnha,\\
+m_{\mathrm{def}}&=\frac{19{,}029.28}{200}=95.1\ \mxnkgN .
+\end{aligned}
+\end{equation}
+The robust income shortfall is the larger of a falling and a rising line, so it is smallest where they cross:
+\begin{equation}
+\frac{R_{\mathrm{def}}(0)-m_{\mathrm{def}} N^\ast}{\kappa_{\mathrm{def}}}=\frac{m_{\mathrm{cal}} N^\ast}{\kappa_{\mathrm{cal}}}
+\quad\Longrightarrow\quad
+N^\ast=\frac{R_{\mathrm{def}}(0)}{m_{\mathrm{def}}+m_{\mathrm{cal}}\,\Lambda},\qquad \Lambda=\frac{\kappa_{\mathrm{def}}}{\kappa_{\mathrm{cal}}} .
+\label{eq:minimax}
+\end{equation}
+Only the ratio $\Lambda$ matters: it is how many calibrated-world pesos one default-world peso is worth. With the repository's range normalization,
+$\Lambda=105{,}689.30/13{,}454.44=7.855$:
+\begin{equation}
+N^\ast=\frac{19{,}029.28}{95.15+15.625\times7.855}=\frac{19{,}029.28}{95.15+122.73}=\frac{19{,}029.28}{217.88}=87.3\ \kgNha .
+\end{equation}
+Solving the same equation on the exact piecewise-linear curves gives $89.4$; on the lattice (4\,kg steps) the worst shortfall is $0.1084$ at $84$, $0.1050$ at $88$ and $0.1068$ at $92$, so the
+minimax dose is $88$. \emph{Beyond $N^\ast$}, the calibrated income shortfall rises, and N loss rises with dose in both worlds, so those doses are dominated on (income, N loss): the two-objective robust front has $23$ strategies, all maize--faba bean
+at $r=0$ with maize N from $0$ to $88\,\kgNha$ ($0,4,\dots,88$).
+
+\subsection{The same dose for every rotation, and its dependence on how regret is defined}
+
+\begin{table}[h]
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lcrrrr@{}}
+\toprule
+Rotation ($r=0$) & $N^\ast$ & cal.\ $\bar V$ & cal.\ $\bar L$ & def.\ $\bar V$ & def.\ $\bar L$ \\
+\midrule
+maize & $100$ & $3{,}488$ & $92.2$ & $36{,}375$ & $49.5$ \\
+maize--barley & $84$ & $2{,}375$ & $54.4$ & $26{,}989$ & $28.6$ \\
+maize--faba bean & $88$ & $11{,}153$ & $54.7$ & $95{,}902$ & $27.3$ \\
+maize--barley--faba bean & $72$ & $7{,}905$ & $38.8$ & $70{,}339$ & $19.4$ \\
+\bottomrule
+\end{tabular}
+\caption{Minimax maize N $N^\ast$ ($\kgNha$) on the lattice (range-normalized income shortfall) and the income $\bar V$ ($\mxnha$) and N lost $\bar L$ ($\kgNha$) there, in each world. Reproduced from the code; matches \code{NSGA_RESULTS.md} on every row. For maize--faba bean at $88$, income is $89\%$ (cal) and $90\%$ (def) of the best attainable.}
+\end{table}
+
+\begin{table}[h]
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Normalizer $\kappa_\theta$ & $\Lambda$ & closed form & exact crossing & lattice, mf & lattice, mz / mb / mbf \\
+\midrule
+range of income (the repo) & $7.855$ & $87.3$ & $89.4$ & $88$ & $100\ /\ 84\ /\ 72$ \\
+share of the best income & $8.540$ & $83.2$ & $85.1$ & $84$ & $84\ /\ 60\ /\ 56$ \\
+absolute pesos ($\kappa=1$) & $1$ & $171.8$ & $172.7$ & $176$ & $200\ /\ 200\ /\ 200$ \\
+\bottomrule
+\end{tabular}
+\caption{Minimax maize N ($\kgNha$) by normalizer, through $\Lambda$ in Equation~\eqref{eq:minimax}; mf = maize--faba bean, mz = maize, mb = maize--barley, mbf = maize--barley--faba bean. In absolute pesos the other three rotations sit at the grid's upper bound ($200\,\kgNha$).}
+\label{tab:regret}
+\end{table}
+
+\textbf{The hedge is a property of the normalizer.} Equation~\eqref{eq:minimax} makes it explicit: a larger $\Lambda$ (the calibrated world counts for more) lowers the dose, from $172$ at $\Lambda=1$ to $83$ at $\Lambda=8.5$.
+Absolute pesos make the default world's larger money decide, so the ``hedge'' simply follows the default model. Prices matter as well: over N price $\in\{10,25,50\}$, faba bean price $\times\{0.5,0.75,1\}$ and stover price $\in\{0,500,1000\}\ \mxnt$,
+the lattice minimax dose for maize--faba bean ranges from $48$ to $132\,\kgNha$ (maize alone: $100$ to $148$). The extremes are $48$ (N price $50$, faba bean at half price, stover $1{,}000$) and $132$ (N price $10$, faba bean at full price); 27 re-runs of the planner, my script.
+
+
+
+The statement that survives is therefore: ``below the current $160$ and above $0$ under range normalization and these placeholder prices''. It is a hedge by construction, not a finding about nitrogen.
+
+\section{Statistics and honesty check}
+\label{sec:stats}
+
+\subsection{The holdout (2022--2025)}
+
+The planner is built twice from the same table: a design \code{Planner} on 2006--2021 and a holdout \code{Planner} on 2022--2025 (\code{load_planners}, :482--488).
+The saved fronts carry the holdout values as \code{*_holdout} columns. For the two compromises picked from the calibrated NSGA front:
+
+\begin{table}[h]
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & & \multicolumn{2}{c}{design 2006--2021} & \multicolumn{2}{c}{holdout 2022--2025} \\
+\cmidrule(lr){3-4}\cmidrule(l){5-6}
+Pick (calibrated NSGA front) & $(s,r)$ & $\bar V$ & $\CVaR_{0.25}$ & $\bar V$ & $\CVaR$ ($q=1$) \\
+\midrule
+sustainability-first (maize--faba bean) & $(0,\,0.95)$ & $11{,}397$ & $4{,}914$ & $11{,}598$ & $8{,}843$ \\
+profit-first (maize) & $(0,\,0)$ & $5{,}895$ & $-4{,}187$ & $6{,}158$ & $2{,}814$ \\
+\bottomrule
+\end{tabular}
+\caption{Net income and bad-year income in $\mxnha$. With four holdout years $q=\lceil0.25\times4\rceil=1$, so the holdout ``bad-year'' value is the single worst year.}
+\end{table}
+
+The order of the two picks is kept. But the holdout does not test resilience: 2023 had $339.5$\,mm of season rain, below every design year (range $558$--$887$, mean $727$), yet the calibrated model still gives $1.99\,\tha$ of maize (design mean $2.30$), so
+the calibrated model barely responds to drought. (The Markdown draft quoted $11{,}598$ against $6{,}086$: the sustainability-first pick is back at $11{,}598$ after the float fix, and the profit-first pick of the current front holds out at $6{,}158$.) The parameters were fit to 2006--2021 SIAP yields; 2022--2025 never selected the knobs but was looked at while the first calibration was designed (\code{CALIBRATION_RESULTS.md}).
+
+\subsection{The CVaR over 16 years}
+
+\begin{itemize}
+\item \textbf{It is the mean of four numbers} (Equation~\eqref{eq:worked}): descriptive, with no confidence interval in the code. Illustration (my computation): an i.i.d.-year bootstrap of the worked strategy's 16 incomes ($20{,}000$ resamples, seed 0) gives a 5th--95th percentile range $[439,\ 8{,}220]\,\mxnha$ for $\CVaR_{0.25}$ (point value $4{,}113$) against $[8{,}598,\ 12{,}544]$ for the mean $\bar V$: the tail statistic is several times noisier.
+\item \textbf{Bad years are frost years, not drought years, in the calibrated world.} Among the 16 pure-maize seasons at $s=0$, the point-biserial correlation of yield with a frost-ended season is $-0.70$ and with season rain $-0.02$
+  (aggregated by year over all crops: $-0.65$ and $-0.19$). With $n=16$ the Fisher-$z$ 95\% interval for $-0.70$ is roughly $[-0.89,-0.31]$ (my arithmetic). \emph{Docs} (\code{CALIBRATION_RESULTS.md}): the POWER grid cell sits $\approx380$\,m above the fields and is
+  about $2.5^\circ$C colder, which I did not re-derive. So ``bad-year income'' measures frost truncation and sowing date.
+\end{itemize}
+
+\subsection{Real data, placeholders, simulated, proxied}
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.22\linewidth}Y@{}}
+\toprule
+Category & Items \\
+\midrule
+Real data & POWER weather; IGBP-DIS and GLDAS soils; SIAP prices (median of three years) and the observed yields behind the calibration. But the faba bean price rests on $10$--$12$ ha of faba bean per year, and its latest value ($5{,}030$ in 2025) is $0.30\times$ the median used. \\
+Placeholders & Costs $14{,}000$ / $9{,}000$ / $11{,}000\,\mxnha$, N price $25$, stover price $1{,}000$, carbon fraction $0.45$ (code comment: typical $0.40$--$0.47$). \\
+Simulated (WOFOST) & Grain yield, N uptake, stover and root biomass, year by year, for chained seasons. \\
+Proxied or accounting & \emph{Soil carbon}: an input flow, no decomposition, no stock. \emph{N loss}: accounting against hand-set fractions. \emph{Retention}: no feedback on yield, N or water. \emph{Prices}: constant. No N$_2$O or fertilizer-manufacturing emissions. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Sensitivity of the exact-front picks}
+
+Re-running \code{choose} on the exact fronts after one change at a time (``mf'' is maize--faba bean, ``mz'' maize, $N$ the maize dose in $\kgNha$; each cell reads sustainability-first / profit-first):
+
+\begin{table}[h]
+\begin{tabularx}{\linewidth}{@{}R{0.19\linewidth}YY@{}}
+\toprule
+Change & Calibrated (front size) & Default (front size) \\
+\midrule
+as shipped & mf, $N=0$, $r=0.90$ / mz, $N=0$, $r=0$ ($483$) & mf, $N=136$, $r=1.00$ / mf, $N=156$, $r=0.75$ ($1{,}377$) \\
+N price $0$ & unchanged / mz, $N=40$, $r=0$ ($483$) & unchanged \\
+N price $100$ & unchanged & unchanged / mf, $N=148$, $r=0.75$ \\
+faba price $5{,}030$ (SIAP 2025) & mz, $N=0$, $r=0.55$ / mz, $N=0$, $r=0.35$ ($462$) & unchanged / mf, $N=200$, $r=0.35$ ($1{,}517$) \\
+stover price $0$ & both mz, $N=0$, $r=1$ ($23$) & mz, $N=160$, $r=1$ / mf, $N=200$, $r=1$ ($102$) \\
+carbon fraction $0.40$ & unchanged & unchanged (it cancels after range normalization) \\
+\bottomrule
+\end{tabularx}
+\caption{One-at-a-time changes. The nitrogen response itself (calibrated versus default) changes every pick more than any price does; only a farm fertilizer trial can settle it.}
+\label{tab:sens}
+\end{table}
+
+\section{Verification log, findings and what to keep in mind}
+\label{sec:verify}
+\small
+
+\subsection{What I ran and what held}
+
+\begin{itemize}
+\item \codeline{python -m unittest tests.test_nsga_planner}: $35$ tests OK ($5.4$\,s).
+\item Independent pandas recomputation from the raw \code{grid.csv} (10 strategies, both worlds, interpolated and node $s$): maximum relative difference $1.2\times10^{-16}$.
+\item Worked strategy, node tables and leave-one-node-out error (Section~\ref{sec:objectives}, Tables~\ref{tab:years}, \ref{tab:nodes}, \ref{tab:loo}): hand and code agree.
+\item Front sizes $483$, $1{,}377$, $252$, $26$, $738$, $1{,}727$ recomputed (after the float fix); the saved \code{brute_force_front.csv} sets equal the recomputed sets (calibrated, default).
+\item NSGA re-runs, seed 1, documented commands: hypervolume ratios equal the saved \code{run.json} ($0.9850$, $0.9809$, $0.9544$, \ldots); grid hash \code{df8bfe11...} matches.
+\item Minimax table, price sweep and three normalizers; picks on exact and NSGA fronts; sensitivity table; four-plan cross-table: reproduced.
+\item Toys (sorting, crowding, SBX, PM, IGD+, HVR, perpendicular distance): checked against pymoo and \code{front_quality}.
+\item Monotonicity over the whole lattice, both worlds: $\bar Y,\bar L$ non-decreasing in $s$; $\bar V$ non-increasing and $\bar C$ non-decreasing in $r$; $\CVaR\le\bar V$; no violation.
+\item Random-sample baseline, bootstrap and correlations: run (Table~\ref{tab:random}, Section~\ref{sec:stats}).
+\end{itemize}
+
+\subsection{What I could not verify}
+
+\begin{itemize}
+\item \code{--build-grid}: needs PCSE and a NASA login; the saved grid was taken as given (its hash matches the runs; \code{grid.json} records commit \code{21e30ec}).
+\item The SMAP correlation $r=0.87$ (needs a simulation) and which parameter set produced it.
+\item The earlier real-coded implementation (never committed; I emulated it), and standard NSGA-II/III theory (quoted from memory; those papers are not in \code{Articles/}).
+\item That the ``N lost'' figure is physically meaningful, and that default faba bean at $9.8\,\tha$ is plausible (it is not, against $1$--$2\,\tha$ typical in Mexico; \emph{docs}).
+\end{itemize}
+
+\subsection{Findings}
+
+\begin{enumerate}
+\item \finding{Floating-point survivors in the calibrated fronts}: $21$ strategies existed only through a $4.4\times10^{-16}\,\tha$ yield difference and one pick depended on them.
+  \emph{Fixed} (Section~\ref{sec:artifact}).
+\item \finding{Ties in \code{choose} are resolved by row order} (:358, \code{np.argmin}); $547$ robust-front members tie exactly in profit-first (Section~\ref{sec:choose}).
+\item \finding{Default-world stover and roots are uncapped} (\code{wofost_rotations.py:312--318}): grain is capped by the grain-N rule but stover is not (Section~\ref{sec:objectives}). Open.
+\item \emph{Minor documentation slips}, fixed in the repository documents: the results document said ``4--12 ha of faba bean'' (it is $10$--$12$ ha; $4$--$12$ is barley and faba bean together), and a code comment said ``16 of 84'' (now ``16--18 of 84'').
+\end{enumerate}
+
+\subsection{Things to keep in mind}
+
+\begin{enumerate}
+\item The calibrated ``zero N'' and the default ``85--100\% of the dose'' are properties of two parameter sets, not agronomy; the fertilizer decision is the one input the data cannot settle.
+\item Do not read the $483$- and $1{,}377$-point fronts or the Chebyshev picks as findings: they come from tiny slopes ($0.5\%$ yield), dominance resistance and range normalization. At a decision-relevant resolution the front has about $15$--$22$ strategies.
+\item The ``$50$--$130\,\kgNha$ hedge'' exists only under range-style regret and the placeholder prices (Table~\ref{tab:regret}).
+\item Everything monetary in the default world is driven by uncapped stover and an implausible faba bean yield; the bad-year objective measures frost and sowing date, not drought.
+\end{enumerate}
+
+\textbf{A check you could run next.} Redo the resolution-rounded front of Section~\ref{sec:dominance} with the smallest income and yield differences a farmer would act on, and see which rotations and doses survive; then ask what interior grid nodes at $s=0.05,0.1,0.15$ (\code{--build-grid} with \code{GRID_SCALES} edited; needs PCSE) say about the response inside the first cell, where the calibrated front's maize strategies sit.
+
+\textbf{Background references} (quoted from memory; not in the repository): Deb et al.\ (2002), \emph{IEEE TEVC} 6(2), NSGA-II; Deb and Jain (2014), \emph{IEEE TEVC} 18(4), NSGA-III; Das and Dennis (1998), \emph{SIAM J.\ Optim.} 8(3); Ishibuchi et al.\ (2015), IGD+; Rockafellar and Uryasev (2000), \emph{J.\ Risk} 2(3), CVaR.
+
+\end{document}

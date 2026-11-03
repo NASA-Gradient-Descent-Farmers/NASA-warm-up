@@ -112,8 +112,11 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 * Technical report (LaTeX) with data, equations, assumptions and results: [`docs/technical_report/`](docs/technical_report/).
 * Exploratory decision-tree, random-forest and XGBoost yield surrogates, additional drought/fertilizer scenarios, and paired bootstrap/Monte Carlo rotation-risk comparisons: [`src/crop_models/README.md`](src/crop_models/README.md#exploratory-trees-xgboost-and-rotation-risk).
 * Nested ensemble blending/stacking and a separate benchmark against official SIAP observed Texcoco yields: [`src/crop_models/ENSEMBLE_RESULTS.md`](src/crop_models/ENSEMBLE_RESULTS.md).
+* NSGA-II / NSGA-III multi-objective planning (yield, income, N loss, soil carbon, bad-year income) over rotation, fertilizer and stover decisions. Start with the plain-language overview [`docs/walkthroughs/README.md`](docs/walkthroughs/README.md); findings and caveats: [`src/crop_models/NSGA_RESULTS.md`](src/crop_models/NSGA_RESULTS.md); the maths (PDF): [`docs/walkthroughs/nsga_planner.pdf`](docs/walkthroughs/nsga_planner.pdf).
 
 ### ⚖️ Economic Proxy Metrics & MOO (`src/moo_reward.py`)
+
+> **Status:** `src/moo_reward.py` has not been written. The multi-objective trade-off work that exists today is the NSGA planner above ([`src/crop_models/nsga_planner.py`](src/crop_models/nsga_planner.py)).
 
 * **Purpose**: Balances competing metrics to generate Pareto frontiers without relying on complex, highly variable external financial APIs.
 * **Function**: Translates large-scale agricultural simulation outputs into actionable on-farm decisions[cite: 2]. It utilizes fixed heuristic coefficients (e.g., relative yield pricing, water-use efficiency) to represent financial returns within the RL reward function.
