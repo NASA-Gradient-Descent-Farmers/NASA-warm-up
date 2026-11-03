@@ -29,7 +29,7 @@ python -m src.rotations.build          # SIAP history and NASA POWER climate
 python -m src.rotations.observed       # MODIS NDVI and SMAP by month (needs the yield-panel caches, ~10 min)
 ```
 
-Or skip the build: the repo already includes the tables in `data/shared/` (the `rotations_*` files, refreshed with `python -m src.yield_panel.share export`). The tool reads `data/shared/` when `data/rotations/` is empty.
+Or skip the build: the repo already includes the tables in `data/shared/` (the `rotations_*` files, refreshed with `python -m src.yield_panel.share export`). The tool reads each table from `data/rotations/` and, if it is not there, from `data/shared/`.
 
 ## How it decides what to propose
 
@@ -111,6 +111,13 @@ Profit replaces gross income in the scores only when the current rotation's cost
 | Review the Spanish card text with an agronomist or extension agent | non-coder | 1 day |
 | More reference figures for `tables/costs.csv` (quoted when asking, never computed with): FIRA Agrocostos summaries or INIFAP technology packages for rainfed crops in the demo states, each with its source and season | non-coder | 1-2 days |
 | DSSAT (DSSATTools) or WOFOST runs for N and C carryover and the previous-crop effect, for the demo districts | coder | 3-5 days |
-| MCP tool wrapper (the function already returns JSON) | coder | ½ day |
 
-Tests: `python -m pytest tests/test_rotations.py`.
+The MCP wrapper is done (`src/assistant/mcp_server.py`).
+
+## Relation to the WOFOST / NSGA planner
+
+`src/crop_models` simulates three rotations at Texcoco with WOFOST and searches fertilizer and stover decisions with NSGA-II / III. It uses the municipal SIAP series where this tool uses the district, and defines income, N, C and risk differently. The two accept the same crop names (`maize`, `barley`, `fababean` or `faba`). See [`docs/planner_vs_rotation_tool.md`](../../docs/planner_vs_rotation_tool.md) for the comparison and a Texcoco cross-check.
+
+`data/rotations/` is also where the planner side keeps its WOFOST scenario `*.csv` files. This tool writes only `.parquet` files there and reads them by name, so the two do not collide; keep it that way.
+
+Tests: `python -m pytest tests/test_rotations.py tests/test_planner_alignment.py`. The real-data test runs on the tables in `data/rotations/` or `data/shared/` (needs `pyarrow`, in `requirements.txt`).

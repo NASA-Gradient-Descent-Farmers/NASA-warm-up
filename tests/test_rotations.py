@@ -1,13 +1,11 @@
-"""Tests for the rotation comparison tool (src/rotations). Synthetic data except the last test, which runs on
-the built tables when they exist (python -m src.rotations.build)."""
-
-from pathlib import Path
+"""Tests for the rotation comparison tool (src/rotations). Synthetic data except one test, which runs on the
+built tables (python -m src.rotations.build) or the shared ones in data/shared/ when they exist."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.rotations import candidates, catalog, climate, indicators, scoring
+from src.rotations import candidates, catalog, climate, indicators, scoring, siap_stats
 from src.rotations.indicators import Place
 
 
@@ -134,8 +132,22 @@ def test_missing_crop_is_reported_not_invented():
     assert e["gaps"] and "cacahuate" in e["gaps"][0]
 
 
-@pytest.mark.skipif(not Path("data/rotations/climate_district.parquet").exists(), reason="tables not built")
+def tables_available():
+    """Built locally (python -m src.rotations.build) or in the shared data package that the repo tracks."""
+    return ((siap_stats.OUT / "climate_district.parquet").exists()
+            or (siap_stats.SHARED / "rotations_climate_district.parquet").exists())
+
+
+def test_planner_crop_names_are_understood():
+    # The NSGA planner (src/crop_models) writes its crops and rotations in English: maize, barley, fababean.
+    assert candidates.parse_rotation("maize-fababean") == [{"pv": "maize"}, {"pv": "faba"}]
+    assert candidates.parse_rotation("maize-barley-fababean") == [{"pv": "maize"}, {"pv": "barley"}, {"pv": "faba"}]
+    assert candidates.crop_key("faba bean") == "faba"
+
+
+@pytest.mark.skipif(not tables_available(), reason="no rotation tables (data/rotations/ or data/shared/)")
 def test_comparar_rotaciones_on_real_data():
+    pytest.importorskip("pyarrow")
     from src.rotations.compare import comparar_rotaciones, to_json
     r = comparar_rotaciones("Celaya", "maíz", estado="Guanajuato", prioridades=["agua", "suelo"])
     assert r["lugar"]["distrito"] == "Celaya"

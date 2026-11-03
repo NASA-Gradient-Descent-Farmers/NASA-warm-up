@@ -8,6 +8,9 @@ requests>=2.31
 h5py>=3.10
 numpy>=1.26
 pandas>=2.1
+pyarrow>=15  # reads the Parquet tables in data/shared/ (yield panel, rotation tool)
+# Optional, not listed: pyhdf (MODIS MCD12C1 cropland share in src/yield_panel/gridded.py); it needs the HDF4
+# libraries installed on the system. The shared tables already include its output.
 
 # Crop simulation (WOFOST)
 pcse==6.0.13  # wofost_rotations.py patches this version's N_Stress; check it before upgrading
@@ -27,3 +30,6 @@ matplotlib>=3.8
 # Notebooks
 jupyter
 ipykernel
+
+# Tests: python -m pytest tests (the older modules are plain unittest, which pytest also runs)
+pytest>=8

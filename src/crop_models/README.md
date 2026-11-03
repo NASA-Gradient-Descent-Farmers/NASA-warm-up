@@ -173,8 +173,10 @@ The samples assume independent historical years with equal probability. They do 
 Run the offline regression checks with:
 
 ```bash
-python -m unittest discover -s tests -v
+python -m pytest tests -v
 ```
+
+`pytest` also runs the unittest-style modules here. `python -m unittest discover -s tests` still works for them but skips the pytest-style functions of `tests/test_rotations.py` and `tests/test_assistant.py`.
 
 Measured exploratory results and their interpretation are in [EXPLORATION.md](EXPLORATION.md).
 
@@ -200,6 +202,8 @@ SIAP municipal averages contain no field rotation history, fertilizer treatments
 ## Multi-objective planning (NSGA-II / NSGA-III)
 
 `nsga_planner.py` searches rotation, fertilizer scale and stover retention for strategies that trade off yield, net income, N lost to the environment, soil carbon input and bad-year income, using [pymoo](https://pymoo.org/). It scores strategies on a grid of WOFOST runs (every rotation at six fertilizer scales, default and SIAP-calibrated parameters), so a search takes seconds; a brute-force front on the same lattice checks the search. Results, caveats and what is placeholder: [NSGA_RESULTS.md](NSGA_RESULTS.md); the maths and code step by step, with worked numbers: [docs/walkthroughs/nsga_planner.pdf](../../docs/walkthroughs/nsga_planner.pdf).
+
+The planner covers one site (Texcoco, municipal SIAP series). The national rotation tool in `src/rotations` uses SIAP districts and defines income, nitrogen, carbon and risk differently; before comparing numbers from the two, read [docs/planner_vs_rotation_tool.md](../../docs/planner_vs_rotation_tool.md).
 
 ```bash
 python -m src.crop_models.nsga_planner --build-grid                  # WOFOST runs -> data/nsga/grid.csv (~1-2 min on 8 cores)

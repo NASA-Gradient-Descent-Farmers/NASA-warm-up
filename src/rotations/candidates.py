@@ -14,7 +14,7 @@ ALIASES = {
     "maiz": "maize", "maiz grano": "maize", "elote": "maize", "frijol": "bean", "sorgo": "sorghum",
     "trigo": "wheat", "cebada": "barley", "avena": "oats", "avena grano": "oats", "avena forrajera": "oats_forage",
     "maiz forrajero": "maize_forage", "ensilado": "maize_forage", "sorgo forrajero": "sorghum_forage",
-    "haba": "faba", "garbanzo": "chickpea", "cacahuate": "peanut", "mani": "peanut", "soya": "soybean",
+    "haba": "faba", "fababean": "faba", "faba bean": "faba", "garbanzo": "chickpea", "cacahuate": "peanut", "mani": "peanut", "soya": "soybean",
     "soja": "soybean", "espelon": "cowpea", "frijol x pelon": "cowpea", "frijol pelon": "cowpea", "caupi": "cowpea",
     "ebo": "vetch", "veza": "vetch", "janamargo": "vetch", "calabaza": "squash_seed", "pipian": "squash_seed",
     "ajonjoli": "sesame", "sesamo": "sesame", "amaranto": "amaranth", "cartamo": "safflower", "milpa": "milpa",

@@ -25,7 +25,7 @@ We use this repo to:
 
 ```text
 ├── Articles/           # Key papers, benchmark studies, and crop modeling literature
-├── data/               # Ignored directory for bulky raw Earth observation files (.h5, .nc, .tif)
+├── data/               # Raw Earth observation downloads and caches are ignored; the processed Parquet tables in data/shared/ are tracked
 ├── dashboard/          # Front-end React/Python assets for the interactive decision-support tool
 ├── Images/             # Visuals, team assets, and generated figures
 ├── Notebooks/          # Exploratory analysis, pipelines, and prototyping notebooks
@@ -54,7 +54,8 @@ cd NASA-warm-up
 
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt ## we are missing the requirements txt.
+pip install -r requirements.txt
+python -m pytest tests  # all checks, offline (the WhatsApp assistant's webhook tests also need requirements-assistant.txt and httpx)
 
 ```
 
@@ -113,6 +114,13 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 * Exploratory decision-tree, random-forest and XGBoost yield surrogates, additional drought/fertilizer scenarios, and paired bootstrap/Monte Carlo rotation-risk comparisons: [`src/crop_models/README.md`](src/crop_models/README.md#exploratory-trees-xgboost-and-rotation-risk).
 * Nested ensemble blending/stacking and a separate benchmark against official SIAP observed Texcoco yields: [`src/crop_models/ENSEMBLE_RESULTS.md`](src/crop_models/ENSEMBLE_RESULTS.md).
 * NSGA-II / NSGA-III multi-objective planning (yield, income, N loss, soil carbon, bad-year income) over rotation, fertilizer and stover decisions. Start with the plain-language overview [`docs/walkthroughs/README.md`](docs/walkthroughs/README.md); findings and caveats: [`src/crop_models/NSGA_RESULTS.md`](src/crop_models/NSGA_RESULTS.md); the maths (PDF): [`docs/walkthroughs/nsga_planner.pdf`](docs/walkthroughs/nsga_planner.pdf).
+
+### 🇲🇽 Rotations across Mexico (`src/yield_panel/`, `src/rotations/`, `src/assistant/`)
+
+* **Yield panel** (`src/yield_panel/`): municipality × year × crop yield and crop-failure models from SIAP outcomes and NASA data (POWER, IMERG, CHIRPS, MODIS NDVI, SMAP, IGBP soils, GEOS-S2S forecasts), plus a pre-season planning model. The processed tables are in `data/shared/`, so no downloads are needed to start. See [`src/yield_panel/README.md`](src/yield_panel/README.md).
+* **Rotation comparison** (`src/rotations/`): `comparar_rotaciones` compares a farmer's rotation with three alternatives that the district already grows, for any of Mexico's 191 SIAP districts, with nine indicators, evidence levels and Spanish explanation cards. See [`src/rotations/README.md`](src/rotations/README.md).
+* **WhatsApp assistant and MCP server** (`src/assistant/`): a Spanish-speaking assistant that gathers the farmer's place, rotation and priorities, calls `comparar_rotaciones` and explains the options. See [`src/assistant/README.md`](src/assistant/README.md).
+* **How this relates to the WOFOST / NSGA work above:** both cover rotations but with different units (one municipality against SIAP districts) and different definitions of income, nitrogen, carbon and risk. The definitions side by side and a Texcoco cross-check are in [`docs/planner_vs_rotation_tool.md`](docs/planner_vs_rotation_tool.md).
 
 ### ⚖️ Economic Proxy Metrics & MOO (`src/moo_reward.py`)
 

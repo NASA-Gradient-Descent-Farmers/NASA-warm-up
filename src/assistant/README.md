@@ -51,4 +51,4 @@ Add to `claude_desktop_config.json`, with the repo root as working directory:
 {"mcpServers": {"field-shift": {"command": "python", "args": ["-m", "src.assistant.mcp_server"], "cwd": "/path/to/NASA-warm-up"}}}
 ```
 
-Tests: `python -m pytest tests/test_assistant.py` (uses a fake Claude client, no key needed).
+Tests: `python -m pytest tests/test_assistant.py` (uses a fake Claude client, no key needed). The webhook tests need `pip install -r requirements-assistant.txt httpx` and are skipped when FastAPI, Twilio or httpx is missing.

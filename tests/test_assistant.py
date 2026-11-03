@@ -90,6 +90,7 @@ def test_compact_result_keeps_what_the_assistant_needs():
 
 
 def test_webhook_answers_at_once_and_replies_in_background(monkeypatch):
+    pytest.importorskip("fastapi")      # requirements-assistant.txt; TestClient also needs httpx
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
     from src.assistant import whatsapp
@@ -105,6 +106,8 @@ def test_webhook_answers_at_once_and_replies_in_background(monkeypatch):
 
 
 def test_webhook_rejects_unsigned_requests(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("twilio")
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
     from src.assistant import whatsapp

@@ -27,8 +27,9 @@ def comparar_rotaciones(lugar, rotacion_actual, estado=None, agua="temporal", pr
     rotacion_actual / propuestas: text like "maíz - frijol" or "maíz/garbanzo", or lists of {"pv":..., "oi":...}.
     agua: "temporal" or "riego". prioridades: subset of scoring.PRIORITIES.
     residuo: what happens to stover, one of indicators.RESIDUE. pendiente: "plana", "ligera" or "fuerte".
-    costos: {"maíz": 9000, ...} the farmer's cost per hectare per season (MXN). Without them the tool uses the
-        sourced reference costs where they exist (tables/costs.csv) and otherwise reports break-even costs.
+    costos: {"maíz": 9000, ...} the farmer's cost per hectare per season (MXN). Only these enter the calculations;
+        without them the tool reports break-even costs, and quotes the reference costs in tables/costs.csv
+        (where one exists) when it asks the farmer for theirs.
     rendimiento_propio: {"maíz": 2.5, ...} the farmer's yield in a normal year (t/ha); it sets the level of
         that crop's SIAP history for this farm.
     """
