@@ -26,10 +26,15 @@ export function App() {
     const hit = nearestCell(data.cells, lat, lon);
     if (!hit) { setMessage("No precomputed data within 80 km of that point yet. Pick one of the highlighted pilot areas."); return; }
     setMessage(`Loading ${hit.cell.cell_id} (${hit.km.toFixed(0)} km from your click)…`);
-    const p = await loadProfile(hit.cell.cell_id);
-    setProfile(p);
-    setExisting(DEFAULT_EXISTING[p.location.region_id] ?? FALLBACK_EXISTING);
-    setMessage(`Showing ${data.regions[p.location.region_id]?.name ?? p.location.region_id} · data cell ${p.cell_id}`);
+    setProfile(null);
+    try {
+      const p = await loadProfile(hit.cell.cell_id);
+      setProfile(p);
+      setExisting(DEFAULT_EXISTING[p.location.region_id] ?? FALLBACK_EXISTING);
+      setMessage(`Showing ${data.regions[p.location.region_id]?.name ?? p.location.region_id} · data cell ${p.cell_id}`);
+    } catch (e) {
+      setMessage(`Could not load this profile: ${String(e)}. Check the demo data and startup steps in README.md.`);
+    }
   };
 
   const evaluation = useMemo(() => {
@@ -37,7 +42,7 @@ export function App() {
     return evaluate({ profile, crops: data.crops, rules: data.rules, references: data.references, scenario, economics, priorities, existing });
   }, [data, profile, scenario, economics, priorities, existing]);
 
-  if (error) return <div className="fatal">Could not load data: {error}</div>;
+  if (error) return <div className="fatal" role="alert">Could not load data: {error}. Check web/public/data/ and the startup steps in README.md.</div>;
   if (!data) return <div className="fatal">Loading…</div>;
 
   return (
@@ -53,8 +58,14 @@ export function App() {
         </aside>
         <main>
           <section className="card">
+            {data.cells.filter((cell) => cell.region_id === "texcoco_mx").slice(0, 1).map((cell) => (
+              <button key={cell.cell_id} onClick={() => void select(cell.lat, cell.lon)}>Load Texcoco demo</button>
+            ))}
+            {!data.cells.length && <p role="alert">No precomputed profiles available. Restore the Texcoco demo files or generate a profile following README.md.</p>}
+            {!data.references.length && <p className="status">Climate twins unavailable: no reference library is installed. The historical-weather calculation remains available.</p>}
+            <p className="disclaimer">Exploratory demo: historical source data with simplified model estimates and draft crop, price and cost assumptions. Not a farm forecast.</p>
             <MapView data={data} selected={profile} onSelect={select} />
-            <p className="status">{message}</p>
+            <p className="status" role="status">{message}</p>
           </section>
           {profile && <EvidencePanel profile={profile} />}
           {profile && evaluation && (

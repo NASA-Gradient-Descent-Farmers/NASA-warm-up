@@ -11,10 +11,19 @@ const base = import.meta.env.BASE_URL;
 async function getJson<T>(path: string, optional = false): Promise<T | null> {
   const response = await fetch(`${base}data/${path}`);
   if (!response.ok) {
-    if (optional) return null;
+    if (optional && response.status === 404) return null;
     throw new Error(`Failed to load ${path} (${response.status})`);
   }
-  return (await response.json()) as T;
+  // Vite's SPA fallback can return index.html with HTTP 200 for a missing JSON.
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    if (optional && response.headers.get("content-type")?.includes("text/html")) return null;
+    throw new Error(`Expected JSON for data/${path}. Check web/public/data/ and the README startup steps.`);
+  }
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error(`Invalid JSON in data/${path}. Check the file before retrying.`);
+  }
 }
 
 export async function loadStatic(): Promise<StaticData> {
@@ -28,7 +37,11 @@ export async function loadStatic(): Promise<StaticData> {
 }
 
 export async function loadProfile(cellId: string): Promise<SiteProfile> {
-  return (await getJson<SiteProfile>(`profiles/${cellId}.json`))!;
+  const profile = (await getJson<SiteProfile>(`profiles/${cellId}.json`))!;
+  if (profile.availability.weather?.status === "missing" || !profile.years_sample.length) {
+    throw new Error(`No historical weather available for ${cellId}; recommendations cannot be calculated. See the README to generate the profile.`);
+  }
+  return profile;
 }
 
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {

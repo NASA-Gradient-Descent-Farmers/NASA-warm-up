@@ -1,0 +1,31 @@
+{
+  "_meta": {
+    "status": "DRAFT rule-of-thumb values compiled from general FAO-style agronomy knowledge. NOT verified against FAO Ecocrop / FAO-56 tables yet. Every number needs agronomist review before the demo claims anything quantitative.",
+    "confidence": "low",
+    "units": {
+      "cycle_months": "months from sowing to harvest",
+      "tmean_opt_c": "[min, max] mean air temperature of the growing season for good growth",
+      "tmin_survive_c": "air temperature below which seedlings/crop are damaged (frost sensitivity)",
+      "water_need_mm": "seasonal crop water requirement, mm",
+      "ky": "yield-response factor to water stress (higher = more sensitive)",
+      "n_fix_kg_ha": "nitrogen fixed per season, kg N/ha (legumes)",
+      "residue_om": "organic-matter contribution index, 0-1",
+      "cover": "ground-cover / erosion-protection index, 0-1",
+      "yield_t_ha": "typical rainfed grain/forage yield (very site dependent)",
+      "price_usd_t": "reference price, USD per tonne (editable by farmer)",
+      "cost_usd_ha": "typical non-fertilizer cost, USD per hectare (editable by farmer)"
+    }
+  },
+  "crops": [
+    {"id": "maize", "name": "Maize", "family": "poaceae", "type": "cereal", "cycle_months": 5, "tmean_opt_c": [18, 30], "tmin_survive_c": 0, "water_need_mm": 500, "ky": 1.25, "root_depth_m": 1.2, "n_fix_kg_ha": 0, "n_demand_kg_ha": 150, "residue_om": 0.6, "cover": 0.5, "forage": 0.3, "drought_tolerance": 0.4, "yield_t_ha": 5.0, "price_usd_t": 200, "cost_usd_ha": 450, "harvest_ratio": 1},
+    {"id": "wheat", "name": "Wheat", "family": "poaceae", "type": "cereal", "cycle_months": 5, "tmean_opt_c": [8, 22], "tmin_survive_c": -8, "water_need_mm": 400, "ky": 1.0, "root_depth_m": 1.3, "n_fix_kg_ha": 0, "n_demand_kg_ha": 110, "residue_om": 0.5, "cover": 0.6, "forage": 0.2, "drought_tolerance": 0.5, "yield_t_ha": 3.5, "price_usd_t": 230, "cost_usd_ha": 380, "harvest_ratio": 1},
+    {"id": "sorghum", "name": "Sorghum / millet", "family": "poaceae", "type": "cereal", "cycle_months": 4, "tmean_opt_c": [20, 32], "tmin_survive_c": 2, "water_need_mm": 350, "ky": 0.9, "root_depth_m": 1.5, "n_fix_kg_ha": 0, "n_demand_kg_ha": 80, "residue_om": 0.5, "cover": 0.5, "forage": 0.5, "drought_tolerance": 0.85, "yield_t_ha": 2.5, "price_usd_t": 190, "cost_usd_ha": 280, "harvest_ratio": 1},
+    {"id": "bean", "name": "Common bean", "family": "fabaceae", "type": "legume", "cycle_months": 3.5, "tmean_opt_c": [16, 27], "tmin_survive_c": 3, "water_need_mm": 350, "ky": 1.15, "root_depth_m": 0.8, "n_fix_kg_ha": 40, "n_demand_kg_ha": 0, "residue_om": 0.4, "cover": 0.5, "forage": 0.2, "drought_tolerance": 0.4, "yield_t_ha": 1.0, "price_usd_t": 800, "cost_usd_ha": 350, "harvest_ratio": 1},
+    {"id": "soybean", "name": "Soybean", "family": "fabaceae", "type": "legume", "cycle_months": 4.5, "tmean_opt_c": [20, 30], "tmin_survive_c": 2, "water_need_mm": 500, "ky": 0.85, "root_depth_m": 1.0, "n_fix_kg_ha": 80, "n_demand_kg_ha": 0, "residue_om": 0.45, "cover": 0.6, "forage": 0.3, "drought_tolerance": 0.5, "yield_t_ha": 2.8, "price_usd_t": 450, "cost_usd_ha": 380, "harvest_ratio": 1},
+    {"id": "faba", "name": "Faba bean", "family": "fabaceae", "type": "legume", "cycle_months": 5, "tmean_opt_c": [8, 22], "tmin_survive_c": -6, "water_need_mm": 400, "ky": 1.1, "root_depth_m": 1.0, "n_fix_kg_ha": 100, "n_demand_kg_ha": 0, "residue_om": 0.5, "cover": 0.6, "forage": 0.4, "drought_tolerance": 0.4, "yield_t_ha": 2.0, "price_usd_t": 500, "cost_usd_ha": 320, "harvest_ratio": 1},
+    {"id": "alfalfa", "name": "Alfalfa (forage ley)", "family": "fabaceae", "type": "forage", "cycle_months": 10, "tmean_opt_c": [12, 28], "tmin_survive_c": -15, "water_need_mm": 800, "ky": 1.1, "root_depth_m": 2.5, "n_fix_kg_ha": 150, "n_demand_kg_ha": 0, "residue_om": 0.8, "cover": 0.9, "forage": 1.0, "drought_tolerance": 0.6, "yield_t_ha": 8.0, "price_usd_t": 160, "cost_usd_ha": 400, "harvest_ratio": 1},
+    {"id": "cover", "name": "Cover crop (vetch/rye mix)", "family": "mixed", "type": "cover", "cycle_months": 5, "tmean_opt_c": [5, 22], "tmin_survive_c": -10, "water_need_mm": 200, "ky": 0.5, "root_depth_m": 0.8, "n_fix_kg_ha": 50, "n_demand_kg_ha": 0, "residue_om": 0.9, "cover": 1.0, "forage": 0.4, "drought_tolerance": 0.6, "yield_t_ha": 0.0, "price_usd_t": 0, "cost_usd_ha": 120, "harvest_ratio": 0},
+    {"id": "fallow", "name": "Bare fallow", "family": "none", "type": "fallow", "cycle_months": 12, "tmean_opt_c": [-50, 60], "tmin_survive_c": -50, "water_need_mm": 0, "ky": 0.0, "root_depth_m": 0.0, "n_fix_kg_ha": 0, "n_demand_kg_ha": 0, "residue_om": 0.0, "cover": 0.0, "forage": 0.0, "drought_tolerance": 1.0, "yield_t_ha": 0.0, "price_usd_t": 0, "cost_usd_ha": 40, "harvest_ratio": 0}
+  ]
+}
+

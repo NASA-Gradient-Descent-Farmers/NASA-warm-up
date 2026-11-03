@@ -8,6 +8,16 @@ __pycache__/
 # Raw / downloaded data
 data/
 
+# Small, existing Texcoco demo inputs; keep raw downloads and other profiles ignored.
+!web/public/data/
+web/public/data/*
+!web/public/data/crops.json
+!web/public/data/rotation_rules.json
+!web/public/data/index.json
+!web/public/data/profiles/
+web/public/data/profiles/*
+!web/public/data/profiles/texcoco_mx_19.53_-98.85.json
+
 # LaTeX build files
 *.aux
 *.bbl

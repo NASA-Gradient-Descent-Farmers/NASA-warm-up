@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "status": "DRAFT rule-of-thumb rotation rules (family-based). Needs agronomist review.",
+    "confidence": "low"
+  },
+  "same_crop_pest_penalty": 0.35,
+  "same_family_pest_penalty": 0.2,
+  "break_bonus_per_year": 0.1,
+  "legume_n_credit_fraction": 0.5,
+  "notes": {
+    "pest_break": "Repeating the same crop (or family) in consecutive years raises disease and pest pressure; a break of one or more years lowers it. Score = 1 - penalties across consecutive pairs (including the wrap-around year).",
+    "n_credit": "A legume's fixed N partly carries to the next crop (fraction above), reducing the fertilizer N the next cereal needs."
+  }
+}
+

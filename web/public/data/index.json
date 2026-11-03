@@ -1,0 +1,37 @@
+{
+ "schema_version": "0.1",
+ "regions": {
+  "texcoco_mx": {
+   "name": "Texcoco, Mexico (temperate highland, rainfed)",
+   "lat": 19.53,
+   "lon": -98.85
+  },
+  "iowa_us": {
+   "name": "Iowa, USA (humid temperate)",
+   "lat": 42.03,
+   "lon": -93.47
+  },
+  "punjab_in": {
+   "name": "Punjab, India (hot semi-arid, irrigated)",
+   "lat": 30.9,
+   "lon": 75.85
+  }
+ },
+ "cells": [
+  {
+   "cell_id": "texcoco_mx_19.53_-98.85",
+   "lat": 19.53,
+   "lon": -98.85,
+   "region_id": "texcoco_mx",
+   "availability": {
+    "weather": "ok",
+    "elevation": "ok",
+    "soil": "missing",
+    "vegetation": "ok",
+    "soil_moisture": "missing",
+    "extreme_rain": "fallback",
+    "water_trend": "missing"
+   }
+  }
+ ]
+}

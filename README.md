@@ -6,6 +6,58 @@ Suck it bro
 
 ![Team Banner](Images/team_image.jpeg)
 
+## FarmAdapt — demo local de Texcoco (primer hito)
+
+La web existente está en `web/`. Arranque probado con **Node 24.11.0 y npm 11.6.1**;
+el Vite del lockfile requiere Node `^20.19.0 || >=22.12.0`.
+
+```bash
+git switch feature/farmadapt-bootstrap # recuperación creada desde daniel-mvp
+cd web
+npm ci
+npm run dev -- --host 127.0.0.1
+```
+
+Abre la URL que imprima Vite y pulsa **Load Texcoco demo**. No necesitas Python,
+credenciales NASA, Firebase ni `.env.local` para usar los datos ya precalculados.
+Las teselas de OpenStreetMap requieren internet; el botón permite seleccionar Texcoco
+aunque el fondo del mapa no se descargue. Detén el servidor con `Ctrl+C`.
+
+```bash
+cd web # desde la raíz del repositorio, en otra terminal
+npm test
+npm run build
+npm run preview -- --host 127.0.0.1
+```
+
+El demo utiliza los cuatro JSON pequeños de `web/public/data/`: `crops.json`,
+`rotation_rules.json`, `index.json` y `profiles/texcoco_mx_19.53_-98.85.json`.
+Se conservan los archivos locales originales del MVP. El perfil declara clima POWER
+1991–2024, elevación SRTM y NDVI MODIS 2019–2023; **el suelo está ausente**.
+El motor usa supuestos de suelo cuando faltan valores. Cultivos, precios y costos
+son parámetros de borrador, no mediciones locales ni pronósticos agrícolas.
+
+`reference_sites.json` no viene incluido: el lente de *climate twins* se muestra
+como no disponible. Las explicaciones deterministas funcionan sin Gemini; el selector
+de idioma no traduce ese fallback, que actualmente está en inglés.
+
+Si falta un catálogo o perfil, la pantalla indica el recurso y remite a estos pasos.
+Restaura los cuatro archivos del demo desde la rama con esta corrección.
+Para **regenerar un único punto** voluntariamente (requiere internet; desde la raíz
+del repositorio, usando un entorno virtual Python activado):
+
+```bash
+python -m pip install requests numpy pandas jsonschema
+python -m src.advisor.build_profile --lat 19.53 --lon -98.85 --region texcoco_mx
+```
+
+Esto consulta POWER, SRTM, SoilGrids y MODIS, reutiliza cachés en `data/advisor/cache/`
+y sobrescribe ese perfil y su entrada en el índice. No es necesario para arrancar.
+No uses `--pilots` para recuperar este demo. Sin clima histórico, la web explica
+que no puede calcular recomendaciones. Los archivos raw y otros perfiles siguen ignorados.
+
+Diagnóstico, límites y explicación del cambio: [auditoría del primer hito](docs/FARMADAPT_BOOTSTRAP.md).
+
 ---
 
 ## 🎯 Purpose & Scope
