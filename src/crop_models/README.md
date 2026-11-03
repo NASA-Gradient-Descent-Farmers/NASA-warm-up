@@ -73,6 +73,7 @@ To add a crop, add it to `CROPS` (any crop/variety PCSE lists). To add a rotatio
 | `yield_water_n_wofost_t_ha` | Water- and N-limited yield before the grain-N constraint |
 | `water_pct_of_potential`, `water_n_pct_of_water` | How much water, then nitrogen, limited the crop (100 = not at all) |
 | `n_fertilizer_kg_ha`, `n_uptake_kg_ha`, `grain_n_kg_ha` | Nitrogen applied, taken up from the soil, and in the grain |
+| `stover_dm_t_ha`, `root_dm_t_ha` | Dry matter left at harvest: leaves (live and dead) plus stems, and roots (CSVs made before this column existed lack both) |
 | `soil_water_at_start_mm`, `mineral_n_at_start_kg_ha` | Soil water (0-100 cm) and mineral N carried into the season on March 1 |
 | `rain_season_mm`, `rain_jul_aug_mm`, `longest_dry_spell_days`, `water_stress_days` | Drought indicators for the season (sowing to harvest) |
 | `year_class`, `rain_may_oct_mm` | Dry / normal / wet (terciles of May-October rain) and that rain |
@@ -195,6 +196,17 @@ The observed experiment has one municipal observation per year, never copied acr
 Both targets use three outer expanding-year folds and reserve 2022–2025 for evaluation by default. For simulations, those years were already inspected in earlier experiments, so this is an exploratory reuse of that holdout. SIAP labels form a separate observed target. Outputs include metrics, row-level holdout predictions, a fitted CV-selected model, inner/outer year membership, blend weights and input hashes. `paired_uncertainty.csv` resamples whole holdout years jointly and reports the selected model's RMSE advantage over each alternative; positive values favor the selected model. Four holdout years give limited uncertainty estimates.
 
 SIAP municipal averages contain no field rotation history, fertilizer treatments, or paired intervention outcomes. They test municipal yield prediction; they **cannot validate the simulated causal benefit of crop rotation**. Errors on SIAP's reported grain basis cannot be directly equated to errors against WOFOST dry-matter yields. Results are recorded in [ENSEMBLE_RESULTS.md](ENSEMBLE_RESULTS.md).
+
+## Multi-objective planning (NSGA-II / NSGA-III)
+
+`nsga_planner.py` searches rotation, fertilizer scale and stover retention for strategies that trade off yield, net income, N lost to the environment, soil carbon input and bad-year income, using [pymoo](https://pymoo.org/). It scores strategies on a grid of WOFOST runs (every rotation at six fertilizer scales, default and SIAP-calibrated parameters), so a search takes seconds; a brute-force front on the same lattice checks the search. Results, caveats and what is placeholder: [NSGA_RESULTS.md](NSGA_RESULTS.md); the maths and code step by step, with worked numbers: [docs/walkthroughs/nsga_planner.pdf](../../docs/walkthroughs/nsga_planner.pdf).
+
+```bash
+python -m src.crop_models.nsga_planner --build-grid                  # WOFOST runs -> data/nsga/grid.csv (~1-2 min on 8 cores)
+python -m src.crop_models.nsga_planner --model calibrated --out-dir data/nsga/calibrated
+python -m src.crop_models.nsga_planner --model robust --out-dir data/nsga/robust    # worst case over default and calibrated parameters
+python -m unittest tests.test_nsga_planner                           # offline, no PCSE
+```
 
 ## Limitations
 

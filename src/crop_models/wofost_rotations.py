@@ -313,6 +313,9 @@ def simulate_rotation(name, sequence, weather, crops, soil, total_n, start_year,
                         "yield_water_n_t_ha": min(row["yield_water_n_t_ha"], grain_n / crop["min_grain_n"] / 1000),
                         "n_uptake_kg_ha": summary.get("NuptakeTotal") or 0.0,
                         "grain_n_kg_ha": grain_n,
+                        # Crop residues at harvest (kg/ha -> t/ha dry matter): leaves incl. dead ones + stems, and roots.
+                        "stover_dm_t_ha": ((summary.get("TWLV") or 0.0) + (summary.get("TWST") or 0.0)) / 1000,
+                        "root_dm_t_ha": (summary.get("TWRT") or 0.0) / 1000,
                         "water_stress_days": int((daily.loc[pd.Timestamp(sow):pd.Timestamp(end), "RFTRA"].dropna() < STRESS_RFTRA).sum()),
                         **drought_indicators(weather, sow, end),
                     })
