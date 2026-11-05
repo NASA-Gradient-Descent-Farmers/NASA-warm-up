@@ -7,6 +7,8 @@ __pycache__/
 
 # Raw / downloaded data
 data/
+# ...except the small JSON exports the dashboard reads (python -m src.crop_models.dashboard_export)
+!dashboard/public/data/
 
 # LaTeX build files
 *.aux

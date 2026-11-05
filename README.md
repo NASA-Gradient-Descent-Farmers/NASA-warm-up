@@ -114,6 +114,10 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 * Nested ensemble blending/stacking and a separate benchmark against official SIAP observed Texcoco yields: [`src/crop_models/ENSEMBLE_RESULTS.md`](src/crop_models/ENSEMBLE_RESULTS.md).
 * NSGA-II / NSGA-III multi-objective planning (yield, income, N loss, soil carbon, bad-year income) over rotation, fertilizer and stover decisions. Start with the plain-language overview [`docs/walkthroughs/README.md`](docs/walkthroughs/README.md); findings and caveats: [`src/crop_models/NSGA_RESULTS.md`](src/crop_models/NSGA_RESULTS.md); the maths (PDF): [`docs/walkthroughs/nsga_planner.pdf`](docs/walkthroughs/nsga_planner.pdf).
 
+### 🖥️ Campo Verde web app (`dashboard/`)
+
+* A static React + TypeScript app (Spanish first, English on a toggle) for Texcoco farmers and advisors. It opens on a home page with an animated leaf and a leaf-wipe transition into each section, then asks where the farmer's field is (a pin on a map, with NASA POWER climate for that spot and an honest verdict on whether the Texcoco-only crop model applies there). It reads JSON exported by `python -m src.crop_models.dashboard_export` and so runs without Python or NASA access. First screen: the NSGA strategy planner, with prices and costs you can edit and the strategies re-scored live. See [`dashboard/README.md`](dashboard/README.md).
+
 ### ⚖️ Economic Proxy Metrics & MOO (`src/moo_reward.py`)
 
 > **Status:** `src/moo_reward.py` has not been written. The multi-objective trade-off work that exists today is the NSGA planner above ([`src/crop_models/nsga_planner.py`](src/crop_models/nsga_planner.py)).
