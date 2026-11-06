@@ -11,8 +11,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.yield_panel import siap
-
 from . import catalog
 
 OUT = Path("data/rotations")
@@ -43,6 +41,8 @@ def extract_year(frame):
 
 def municipality_districts(years=range(2016, 2026)):
     """Each municipality's district: the most frequent idddr in recent years, with names."""
+    from src.yield_panel import siap
+
     parts = []
     for year in years:
         f = siap.read_year(year)
@@ -59,6 +59,8 @@ def municipality_districts(years=range(2016, 2026)):
 
 
 def build(years=YEARS, out=OUT):
+    from src.yield_panel import siap
+
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     parts = []
