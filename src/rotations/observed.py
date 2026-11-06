@@ -17,9 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.yield_panel import gridded, weather
-
-from . import climate, siap_stats
+from . import siap_stats
 
 NDVI_FILE = Path("data/modis_ndvi/mod13c2_200301_202512_14_33_-117_-86.npz")
 CROPLAND_FILE = Path("data/modis_landcover/mcd12c1_2015_14_33_-117_-86.npz")
@@ -29,6 +27,8 @@ NDVI_RADIUS_KM, SMAP_RADIUS_KM = 15, 10
 
 
 def ndvi_monthly(points):
+    from src.yield_panel import gridded
+
     z = np.load(NDVI_FILE)
     crop = np.load(CROPLAND_FILE)
     months = pd.to_datetime(z["months"])
@@ -39,6 +39,8 @@ def ndvi_monthly(points):
 
 
 def smap_monthly(points):
+    from src.yield_panel import gridded
+
     months, daily_all = [], []
     for path in sorted(SMAP_DIR.glob(f"[12][0-9][0-9][0-9]_{SMAP_BOX}.npz")):    # skip the grid file
         z = np.load(path)
@@ -56,6 +58,8 @@ def smap_monthly(points):
 
 
 def municipal_table():
+    from src.yield_panel import weather
+
     mun = weather.load_municipalities()
     points = list(zip(mun["lat"], mun["lon"]))
     ndvi, ndvi_p20, ndvi_p80, used = ndvi_monthly(points)
@@ -78,6 +82,8 @@ def municipal_table():
 
 
 def district_table(municipal):
+    from . import climate
+
     districts, weights = siap_stats.load_districts(), climate.crop_area_weights()
     m = municipal.merge(districts[["state_id", "mun_id", "ddr"]], on=["state_id", "mun_id"]).merge(
         weights, on=["state_id", "mun_id"], how="left")

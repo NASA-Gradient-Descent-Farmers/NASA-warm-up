@@ -116,3 +116,15 @@ def test_webhook_rejects_unsigned_requests(monkeypatch):
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test-token")
     r = TestClient(whatsapp.app).post("/whatsapp", data={"From": "whatsapp:+1", "Body": "hola"})
     assert r.status_code == 403
+
+
+def test_assistant_loads_without_the_download_libraries():
+    """The deployed bot installs requirements-assistant.txt only: no earthaccess, xarray, etc."""
+    import subprocess
+    import sys
+    code = ("import sys\n"
+            "for m in ['earthaccess', 'xarray', 'netCDF4', 'pyhdf', 'fsspec', 'h5py', 'pcse', 'sklearn']:\n"
+            "    sys.modules[m] = None\n"
+            "import src.assistant.agent, src.assistant.whatsapp, src.assistant.mcp_server, src.rotations.compare\n")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

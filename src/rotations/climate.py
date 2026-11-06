@@ -17,8 +17,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.yield_panel import siap, weather
-
 from . import siap_stats
 
 OUT = siap_stats.OUT
@@ -76,6 +74,8 @@ def monthly_normals(daily, lat, elevation_m, years=YEARS):
 
 
 def _cell_file(cell_id):
+    from src.yield_panel import weather
+
     for period in ("1981_2025", "2002_2025"):
         path = weather.CACHE_DIR / f"{cell_id}_{period}.csv"
         if path.exists():
@@ -84,6 +84,8 @@ def _cell_file(cell_id):
 
 
 def municipal_normals(municipalities=None):
+    from src.yield_panel import weather
+
     mun = weather.assign_cells(municipalities if municipalities is not None else weather.load_municipalities())
     cache = {}
     rows, yearly = [], []
@@ -103,6 +105,8 @@ def municipal_normals(municipalities=None):
 
 def crop_area_weights(years=range(2016, 2026)):
     """Mean annual-crop sown area per municipality (both cycles), the weight for district averages."""
+    from src.yield_panel import siap
+
     parts = []
     for year in years:
         f = siap.read_year(year)
