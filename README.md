@@ -1,5 +1,4 @@
 # NASA Space Apps & Agronomic Intelligence Warm-up 🛰️🌾
-Suck it bro
 **Note:** I used the Colab extension in VSCode to run, download and interact with the data, so the datasets will not be found in this repository since they are referenced using the ```earthaccess``` library from **NASA**. Note that you need to register in order to pull the data into your workspace.
 
 > **Central Source of Truth (SoT)** for our team's data science warm-up applications, Earth observation pipelines, agronomic models, and literature exploration.
@@ -16,7 +15,7 @@ We use this repo to:
 
 * **Gain hands-on experience** querying, downloading, and preprocessing satellite observations (SMAP, MODIS, Landsat/Sentinel).
 * **Engineer predictive agronomic features** (e.g., continuous soil moisture dynamics, drought indexes, root-zone depletion rates).
-* **Benchmark decision-support tools & models** to aid long-term strategic decision making at the cropping system level, rather than just short-term tactical decisions for individual crops[cite: 2].
+* **Benchmark decision-support tools & models** to aid long-term strategic decision making at the cropping system level, rather than just short-term tactical decisions for individual crops.
 * **Maintain a shared literature & knowledge base** across the team.
 
 ---
@@ -83,7 +82,7 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 * **Capabilities**:
 * Spatial bounding-box query and download using `earthaccess`.
 * HDF5 (`.h5`) inspection and multi-band extraction via `h5py`.
-* Measuring the moisture lodged in Earth's soils with an unprecedented accuracy and resolution[cite: 5].
+* Measuring the moisture lodged in Earth's soils with an unprecedented accuracy and resolution.
 * Extracting continuous time series:
 * **Surface Soil Moisture (`sm_surface`)**: $0 - 5\text{ cm}$, rapid evaporation & infiltration.
 * **Root-Zone Soil Moisture (`sm_rootzone`)**: $0 - 100\text{ cm}$, crop water reservoir & drought resilience.
@@ -126,7 +125,7 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 > **Status:** `src/moo_reward.py` has not been written. The multi-objective trade-off work that exists today is the NSGA planner above ([`src/crop_models/nsga_planner.py`](src/crop_models/nsga_planner.py)).
 
 * **Purpose**: Balances competing metrics to generate Pareto frontiers without relying on complex, highly variable external financial APIs.
-* **Function**: Translates large-scale agricultural simulation outputs into actionable on-farm decisions[cite: 2]. It utilizes fixed heuristic coefficients (e.g., relative yield pricing, water-use efficiency) to represent financial returns within the RL reward function.
+* **Function**: Translates large-scale agricultural simulation outputs into actionable on-farm decisions. It utilizes fixed heuristic coefficients (e.g., relative yield pricing, water-use efficiency) to represent financial returns within the RL reward function.
 
 ---
 
@@ -134,10 +133,10 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 
 Curated research foundational to our solution architecture:
 
-* **Crop Modeling & Simulators**: Evaluating cropping systems using the APSIM simulation database[cite: 2, 7].
-* **Reinforcement Learning**: CYCLESGYM is an RL environment based on the multi-year, multi-crop CGM Cycles that allows for long-term planning in agroecosystems[cite: 4].
-* **Machine Learning Classifiers**: Developing decision support systems utilizing algorithms like Random Forest and Extreme Gradient Boosting[cite: 3].
-* **Cloud Architecture**: Utilizing Firebase cloud memory for storing structured datasets and bridging predictive models to user-facing applications[cite: 3].
+* **Crop Modeling & Simulators**: Evaluating cropping systems using the APSIM simulation database.
+* **Reinforcement Learning**: CYCLESGYM is an RL environment based on the multi-year, multi-crop CGM Cycles that allows for long-term planning in agroecosystems.
+* **Machine Learning Classifiers**: Developing decision support systems utilizing algorithms like Random Forest and Extreme Gradient Boosting.
+* **Cloud Architecture**: Utilizing Firebase cloud memory for storing structured datasets and bridging predictive models to user-facing applications.
 
 ---
 
