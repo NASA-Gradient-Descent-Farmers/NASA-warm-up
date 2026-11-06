@@ -11,10 +11,13 @@ Files written to --out-dir (default dashboard/public/data):
 - grid.json: the WOFOST season outcomes the NSGA planner scores strategies from (nsga_planner.Grid, design years,
              every rotation at each fertilizer scale), one table per parameter set. The browser re-prices
              and re-scores strategies from it, so prices and costs can be edited live.
+- scenarios.json, reality.json: the WOFOST scenario suites and SIAP comparison for the economics, reality-check
+             and what-if tabs (see dashboard_seasons.py; meta.json gains a `farm` section describing them).
 
 Written to --fixtures-dir (default dashboard/src/lib/fixtures), for the dashboard's tests only:
 - reference_fronts.json: the exact Pareto fronts saved by nsga_planner at the default economics, which the
              browser port of the planner must reproduce.
+- reference_economics.json: farm_tool.rotation_economics at the same economics, for the browser's port of it.
 
 Usage (from the repo root):
     python -m src.crop_models.dashboard_export
@@ -27,6 +30,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import dashboard_seasons
 from .calibration import CALIBRATION_YEARS
 from .farm_setup import CROPS, ROTATIONS, SITE, fertilizer_kg_ha
 from .farm_tool import default_prices, siap_texcoco
@@ -154,8 +158,17 @@ def main():
     parser.add_argument("--grid", type=Path, default=GRID_CSV)
     args = parser.parse_args()
     meta, grid, reference = build_payloads(grid_csv=args.grid)
+    loaded = {world: dashboard_seasons.load_world(directory, world)
+              for world, directory in dashboard_seasons.SEASON_DIRS.items()}
+    scenarios, reality, economics, farm = dashboard_seasons.build_season_payloads(
+        {world: seasons for world, (seasons, _) in loaded.items()}, siap_texcoco(), meta["economics"],
+        {world: hashes for world, (_, hashes) in loaded.items()})
+    meta.update(farm)
     for directory, name, payload in ((args.out_dir, "meta.json", meta), (args.out_dir, "grid.json", grid),
-                                     (args.fixtures_dir, "reference_fronts.json", reference)):
+                                     (args.out_dir, "scenarios.json", scenarios),
+                                     (args.out_dir, "reality.json", reality),
+                                     (args.fixtures_dir, "reference_fronts.json", reference),
+                                     (args.fixtures_dir, "reference_economics.json", economics)):
         path = write_json(directory / name, payload)
         print(f"Saved {path} ({path.stat().st_size / 1024:.0f} kB)")
 

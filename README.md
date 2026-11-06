@@ -26,13 +26,14 @@ We use this repo to:
 ```text
 ├── Articles/           # Key papers, benchmark studies, and crop modeling literature
 ├── data/               # Ignored directory for bulky raw Earth observation files (.h5, .nc, .tif)
-├── dashboard/          # Front-end React/Python assets for the interactive decision-support tool
+├── dashboard/          # Campo Verde web app (React + TypeScript), fed by JSON from src/crop_models/dashboard_export.py
+├── docs/               # Technical report and walkthroughs (LaTeX + PDF)
 ├── Images/             # Visuals, team assets, and generated figures
 ├── Notebooks/          # Exploratory analysis, pipelines, and prototyping notebooks
 │   ├── sample_SMAP.ipynb
-│   ├── sample_MODIS.ipynb
-│   └── sample_POWER.ipynb
+│   └── texcoco_farmer_mvp.ipynb
 ├── src/                # Modularized Python utility functions and data ingestion scripts
+├── tests/              # Offline unit tests (python -m unittest discover -s tests)
 ├── .gitignore          # Configured to ignore bulky raw data, caches, and environment files
 ├── requirements.txt    # Unified dependencies for team environment reproducibility
 ├── LICENSE
@@ -54,7 +55,7 @@ cd NASA-warm-up
 
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt ## we are missing the requirements txt.
+pip install -r requirements.txt
 
 ```
 
@@ -91,12 +92,14 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 
 
 
-### 🛰️ MODIS Vegetation Pipeline (`Notebooks/sample_MODIS.ipynb`)
+### 🛰️ MODIS Vegetation Pipeline (planned)
+
+> **Status:** not written yet; there is no MODIS notebook or ingestion script in the repo.
 
 * **Purpose**: High-temporal-resolution extraction of Normalized Difference Vegetation Index (NDVI) and Leaf Area Index (LAI).
 * **Capabilities**: Processes raw satellite imagery to capture spatial field heterogeneity, acting as the primary visual state representation for crop health.
 
-### 🌤️ POWER Meteorological Pipeline (`Notebooks/sample_POWER.ipynb`)
+### 🌤️ POWER Meteorological Pipeline (`src/data_ingestion/power.py`)
 
 * **Purpose**: Ingestion of tabular, analysis-ready historical climate sequences (solar radiation, temperatures, precipitation).
 * **Capabilities**: Feeds the stochastic environmental transitions into our RL models to ensure resilience against extreme climate events.
