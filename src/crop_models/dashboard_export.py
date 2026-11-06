@@ -143,12 +143,37 @@ def build_payloads(worlds=WORLDS, grid_csv=GRID_CSV, crop_plan_fn=crop_plan, sia
     return meta, grid, reference
 
 
+def dumps(payload):
+    """Compact, key-ordered JSON text, so a re-export of unchanged inputs gives identical bytes."""
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True, ensure_ascii=False) + "\n"
+
+
 def write_json(path, payload):
-    """Compact, key-ordered JSON so a re-export of unchanged inputs gives identical bytes."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=True, ensure_ascii=False) + "\n")
+    path.write_text(dumps(payload))
     return path
+
+
+def all_payloads(out_dir=OUT_DIR, fixtures_dir=FIXTURES_DIR, grid_csv=GRID_CSV, season_dirs=None):
+    """[(path, payload)] of every file the dashboard reads, built from the saved model outputs under data/."""
+    meta, grid, reference = build_payloads(grid_csv=grid_csv)
+    season_dirs = season_dirs or dashboard_seasons.SEASON_DIRS
+    loaded = {world: dashboard_seasons.load_world(directory, world) for world, directory in season_dirs.items()}
+    scenarios, reality, economics, farm = dashboard_seasons.build_season_payloads(
+        {world: seasons for world, (seasons, _) in loaded.items()}, siap_texcoco(), meta["economics"],
+        {world: hashes for world, (_, hashes) in loaded.items()})
+    meta.update(farm)
+    out_dir, fixtures_dir = Path(out_dir), Path(fixtures_dir)
+    return [(out_dir / "meta.json", meta), (out_dir / "grid.json", grid), (out_dir / "scenarios.json", scenarios),
+            (out_dir / "reality.json", reality), (fixtures_dir / "reference_fronts.json", reference),
+            (fixtures_dir / "reference_economics.json", economics)]
+
+
+def stale_files(payloads):
+    """Paths whose saved bytes differ from what the export would write now (missing files count)."""
+    return [path for path, payload in payloads
+            if not Path(path).exists() or Path(path).read_text(encoding="utf-8") != dumps(payload)]
 
 
 def main():
@@ -156,20 +181,20 @@ def main():
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--fixtures-dir", type=Path, default=FIXTURES_DIR)
     parser.add_argument("--grid", type=Path, default=GRID_CSV)
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if the saved JSON differs from what the data under data/ gives")
     args = parser.parse_args()
-    meta, grid, reference = build_payloads(grid_csv=args.grid)
-    loaded = {world: dashboard_seasons.load_world(directory, world)
-              for world, directory in dashboard_seasons.SEASON_DIRS.items()}
-    scenarios, reality, economics, farm = dashboard_seasons.build_season_payloads(
-        {world: seasons for world, (seasons, _) in loaded.items()}, siap_texcoco(), meta["economics"],
-        {world: hashes for world, (_, hashes) in loaded.items()})
-    meta.update(farm)
-    for directory, name, payload in ((args.out_dir, "meta.json", meta), (args.out_dir, "grid.json", grid),
-                                     (args.out_dir, "scenarios.json", scenarios),
-                                     (args.out_dir, "reality.json", reality),
-                                     (args.fixtures_dir, "reference_fronts.json", reference),
-                                     (args.fixtures_dir, "reference_economics.json", economics)):
-        path = write_json(directory / name, payload)
+    payloads = all_payloads(args.out_dir, args.fixtures_dir, args.grid)
+    if args.check:
+        stale = stale_files(payloads)
+        for path in stale:
+            print(f"Out of date: {path}")
+        if stale:
+            raise SystemExit("The dashboard JSON does not match data/: run python -m src.crop_models.dashboard_export")
+        print(f"Up to date: all {len(payloads)} dashboard files match data/")
+        return
+    for path, payload in payloads:
+        write_json(path, payload)
         print(f"Saved {path} ({path.stat().st_size / 1024:.0f} kB)")
 
 

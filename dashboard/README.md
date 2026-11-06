@@ -49,18 +49,17 @@ Those thresholds are our judgment calls, not NASA's or the model's (`src/lib/cov
 
 ## Run it
 
-The exported JSON is committed, so you only need this when the model results change. From the repo root (needs `pip install -r requirements.txt`; about 2 minutes for the planner, an hour for the twenty scenario runs):
+The exported JSON is committed, so you only need this when the model results change. From the repo root (needs `pip install -r requirements.txt` and internet for NASA POWER and SIAP):
 
 ```bash
-python -m src.crop_models.nsga_planner --build-grid --model calibrated --out-dir data/nsga/calibrated
-python -m src.crop_models.nsga_planner --model default --out-dir data/nsga/default
-python -m src.crop_models.rotation_experiments --out-dir data/rotations
-python -m src.crop_models.calibration --simulate --scenarios baseline rain80 rain60 canicula50 frost_minus2 \
-    no_fertilizer fixed_sowing half_fertilizer rain80_half_fertilizer canicula50_half_fertilizer
-python -m src.crop_models.dashboard_export
+python -m src.crop_models.dashboard_pipeline            # everything: WOFOST runs, SIAP, planner, export (~35 min)
+python -m src.crop_models.dashboard_pipeline --export   # only re-export from the outputs already in data/
+python -m src.crop_models.dashboard_pipeline --check    # only check the committed JSON against data/
 ```
 
-The exporter refuses fronts that were not computed from the current `data/nsga/grid.csv` and scenario folders that lack any of the ten scenarios. It does not need PCSE.
+The pipeline runs the steps in the order they depend on each other (default scenarios, SIAP, then the planner and the calibrated scenarios side by side, then the export) and stops at the first failure. Its docstring lists each command if you need one on its own. The exporter refuses fronts that were not computed from the current `data/nsga/grid.csv` and scenario folders that lack any of the ten scenarios; it does not need PCSE.
+
+**Keeping it connected.** `tests/test_dashboard_data.py` fails when the committed JSON disagrees with the Python (a crop, rotation, scenario, site or planner constant changed without a re-export) and, where `data/` exists, when the model outputs changed since the export. CI (`.github/workflows/ci.yml`) runs the Python tests and the dashboard's lint, tests and build on every push and pull request.
 
 Then:
 

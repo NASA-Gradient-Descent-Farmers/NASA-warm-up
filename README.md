@@ -119,7 +119,7 @@ auth = earthaccess.login(strategy="interactive", persist=True)
 
 ### 🖥️ Campo Verde web app (`dashboard/`)
 
-* A static React + TypeScript app (Spanish first, English on a toggle) for Texcoco farmers and advisors. It opens on a home page with an animated leaf and a leaf-wipe transition into each section, then asks where the farmer's field is (a pin on a map, with NASA POWER climate for that spot and an honest verdict on whether the Texcoco-only crop model applies there). It reads JSON exported by `python -m src.crop_models.dashboard_export` and so runs without Python or NASA access. First screen: the NSGA strategy planner, with prices and costs you can edit and the strategies re-scored live. See [`dashboard/README.md`](dashboard/README.md).
+* A static React + TypeScript app (Spanish first, English on a toggle) for Texcoco farmers and advisors. It opens on a home page with an animated leaf and a leaf-wipe transition into each section, then asks where the farmer's field is (a pin on a map, with NASA POWER climate for that spot and an honest verdict on whether the Texcoco-only crop model applies there). It reads JSON exported from the model outputs, so it runs without Python or NASA access; `python -m src.crop_models.dashboard_pipeline` regenerates all of it, and CI checks that it still matches the Python. First screen: the NSGA strategy planner, with prices and costs you can edit and the strategies re-scored live. See [`dashboard/README.md`](dashboard/README.md).
 
 ### ⚖️ Economic Proxy Metrics & MOO (`src/moo_reward.py`)
 
