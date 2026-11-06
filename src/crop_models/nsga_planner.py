@@ -53,6 +53,7 @@ import numpy as np
 import pandas as pd
 
 from .calibration import CALIBRATION_YEARS, HOLDOUT_YEARS
+from .farm_setup import DEFAULT_LAT, DEFAULT_LON
 from .farm_tool import default_prices, siap_texcoco
 from .rotation_experiments import TARGET
 
@@ -498,7 +499,7 @@ def robust_planners(grid_csv, economics, models=ROBUST_MODELS, design_years=CALI
 
 # --- Stage 1: WOFOST runs (needs PCSE, cached NASA POWER weather and IGBP/GLDAS soils) ---
 
-def build_grid(scales=GRID_SCALES, out=GRID_CSV, lat=19.53, lon=-98.85, workers=None):
+def build_grid(scales=GRID_SCALES, out=GRID_CSV, lat=DEFAULT_LAT, lon=DEFAULT_LON, workers=None):
     """Simulate every rotation at each fertilizer scale with the default and the calibrated parameters.
 
     Saves the water- and N-limited seasons to `out` (columns `model`, `n_scale` added) and a grid.json next to it

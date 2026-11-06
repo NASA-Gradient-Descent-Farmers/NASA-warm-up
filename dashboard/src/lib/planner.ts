@@ -5,11 +5,8 @@
 import type { Economics, GridField, GridWorld, Strategy, Values } from './types.ts'
 import { GRID_FIELDS } from './types.ts'
 
-/** Share of the worst years averaged by the bad-year objective (nsga_planner.CVAR_SHARE). */
-export const CVAR_SHARE = 0.25
-
 /** Mean of the lowest `share` of the values (at least one): the conditional value at risk of a gain. */
-export function tailMean(values: number[], share = CVAR_SHARE): number {
+export function tailMean(values: number[], share: number): number {
   const k = Math.max(1, Math.ceil(share * values.length))
   const lowest = [...values].sort((a, b) => a - b).slice(0, k)
   return lowest.reduce((sum, v) => sum + v, 0) / k
@@ -43,10 +40,13 @@ export class Planner {
   readonly scales: number[]
   readonly rotations: string[]
   readonly economics: Economics
+  /** Share of the worst years averaged by the bad-year objective (meta.planner.cvar_share). */
+  readonly cvarShare: number
   private readonly data = new Map<string, RotationData>()
 
-  constructor(world: GridWorld, economics: Economics) {
+  constructor(world: GridWorld, economics: Economics, cvarShare: number) {
     this.economics = economics
+    this.cvarShare = cvarShare
     if (world.scales.length < 2 || world.scales[0] !== 0) {
       throw new Error('The grid needs the zero-fertilizer node and at least one more (N loss is a difference)')
     }
@@ -134,7 +134,7 @@ export class Planner {
     return out
   }
 
-  /** The five objectives of a strategy, averaged over years (cvar: the worst CVAR_SHARE of years). */
+  /** The five objectives of a strategy, averaged over years (cvar: the worst `cvarShare` of years). */
   objectives(rotation: string, nScale: number, retention: number): Values {
     const a = this.annual(rotation, nScale, retention)
     return {
@@ -142,7 +142,7 @@ export class Planner {
       net_mxn_ha: mean(a.net_mxn_ha),
       n_loss_kg_ha: mean(a.n_loss_kg_ha),
       c_input_t_ha: mean(a.c_input_t_ha),
-      cvar_net_mxn_ha: tailMean(a.net_mxn_ha),
+      cvar_net_mxn_ha: tailMean(a.net_mxn_ha, this.cvarShare),
     }
   }
 

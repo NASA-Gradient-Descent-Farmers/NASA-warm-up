@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.crop_models.dashboard_export import FRONT_COLUMNS, build_payloads, siap_prices, write_json
-from src.crop_models.nsga_planner import FIELDS
+from src.crop_models.dashboard_export import FRONT_COLUMNS, build_payloads, crop_plan, siap_prices, write_json
+from src.crop_models.farm_setup import ROTATIONS as FARM_ROTATIONS, SITE
+from src.crop_models.nsga_planner import CVAR_SHARE, FIELDS, FRONT_DECIMALS
 from src.crop_models.rotation_experiments import TARGET
 
 ECONOMICS = {"prices": {"maize": 8000.0}, "other_costs": {"maize": 14000}, "n_price": 25.0,
@@ -126,6 +127,16 @@ class ExportTests(unittest.TestCase):
         second = write_json(self.tmp / "x" / "two.json", dict(reversed(list(payload.items())))).read_bytes()
         self.assertEqual(first, second)
         self.assertNotIn(b" ", first.strip())
+
+    def test_planner_settings_and_site_come_from_the_python_source(self):
+        meta, _, _ = self.build()
+        self.assertEqual(meta["planner"], {"cvar_share": CVAR_SHARE, "front_decimals": FRONT_DECIMALS})
+        self.assertEqual(meta["site"], SITE)
+
+    def test_crop_plan_needs_no_crop_model(self):
+        doses, rotations = crop_plan()  # farm_setup only: works without PCSE installed
+        self.assertEqual(doses, {"maize": 160, "barley": 60, "fababean": 40})
+        self.assertEqual(rotations, FARM_ROTATIONS)
 
 
 if __name__ == "__main__":

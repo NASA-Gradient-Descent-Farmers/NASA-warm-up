@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .farm_setup import DEFAULT_LAT, DEFAULT_LON
+
 TARGET = "yield_water_n_t_ha"
 KEY = ["scenario", "rotation", "phase", "year"]
 
@@ -129,8 +131,8 @@ def load_seasons(paths, spinup_years=1):
 def main():
     parser = argparse.ArgumentParser(description="Run additional WOFOST crop-rotation scenarios.")
     parser.add_argument("--scenarios", nargs="+", choices=list(SCENARIOS), default=list(SCENARIOS))
-    parser.add_argument("--lat", type=float, default=19.53)
-    parser.add_argument("--lon", type=float, default=-98.85)
+    parser.add_argument("--lat", type=float, default=DEFAULT_LAT)
+    parser.add_argument("--lon", type=float, default=DEFAULT_LON)
     parser.add_argument("--start-year", type=int, default=2005)
     parser.add_argument("--end-year", type=int, default=2025)
     parser.add_argument("--out-dir", type=Path, default=Path("data/rotation_experiments"))

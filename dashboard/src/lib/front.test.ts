@@ -16,8 +16,8 @@ const fronts = new Map<string, Strategy[]>()
 function liveFront(world: WorldKey, economics: Economics = meta.economics): Strategy[] {
   const key = world + JSON.stringify(economics)
   if (!fronts.has(key)) {
-    const all = new Planner(data.grids[world], economics).bruteForce(meta.lattice.n_scale_steps, meta.lattice.retention_steps)
-    fronts.set(key, paretoFront(all, [...OBJECTIVES], maximize))
+    const all = new Planner(data.grids[world], economics, meta.planner.cvar_share).bruteForce(meta.lattice.n_scale_steps, meta.lattice.retention_steps)
+    fronts.set(key, paretoFront(all, [...OBJECTIVES], maximize, meta.planner.front_decimals))
   }
   return fronts.get(key)!
 }
@@ -36,13 +36,13 @@ describe('paretoFront', () => {
     const b = strategy(1, { net_mxn_ha: 8, n_loss_kg_ha: 5 }) // less income, same N lost: dominated by a
     const c = strategy(2, { net_mxn_ha: 6, n_loss_kg_ha: 1 }) // less income but less N lost: a trade-off
     const keys: ObjectiveKey[] = ['net_mxn_ha', 'n_loss_kg_ha']
-    expect(paretoFront([a, b, c], keys, maximize).map((s) => s.id)).toEqual([0, 2])
+    expect(paretoFront([a, b, c], keys, maximize, 9).map((s) => s.id)).toEqual([0, 2])
   })
 
   it('treats differences below the rounding as ties and keeps the first', () => {
     const a = strategy(0, { net_mxn_ha: 10 })
     const b = strategy(1, { net_mxn_ha: 10 + 1e-12 })
-    expect(paretoFront([a, b], ['net_mxn_ha'], maximize).map((s) => s.id)).toEqual([0])
+    expect(paretoFront([a, b], ['net_mxn_ha'], maximize, 9).map((s) => s.id)).toEqual([0])
   })
 })
 
@@ -87,7 +87,8 @@ describe('choose', () => {
     expect(picked.rotation).toBe(rotation)
     expect(picked.nScale).toBeCloseTo(nScale, 6)
     expect(picked.retention).toBeCloseTo(retention, 6)
-    expect(Math.round(picked.values.net_mxn_ha)).toBe(net)
+    // The document prints whole pesos; a fresh WOFOST grid (re-downloaded POWER weather) can move them by about 1.
+    expect(Math.abs(picked.values.net_mxn_ha - net)).toBeLessThanOrEqual(2)
   })
 
   it('does not depend on the scale of the weights', () => {

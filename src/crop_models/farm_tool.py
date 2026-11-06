@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .farm_setup import DEFAULT_LAT, DEFAULT_LON
 from .rotation_experiments import TARGET, Scenario, load_seasons
 
 OBSERVATIONS = Path("data/observations")
@@ -209,7 +210,7 @@ def run_scenario(name, rotations=None, rain_factor=1.0, rain_months=None, frost_
     from .wofost_rotations import ROTATIONS, simulate_rotations
 
     chosen = {key: ROTATIONS[key] for key in (rotations or ROTATIONS)}
-    seasons, _, _, _ = simulate_rotations(19.53, -98.85, start_year, end_year, chosen, sowing, rain_factor,
+    seasons, _, _, _ = simulate_rotations(DEFAULT_LAT, DEFAULT_LON, start_year, end_year, chosen, sowing, rain_factor,
                                           list(rain_months) if rain_months else None, frost_tmin_offset, n_scale)
     seasons["scenario"] = name
     out_dir = Path(out_dir)

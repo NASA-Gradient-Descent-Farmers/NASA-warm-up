@@ -31,9 +31,9 @@ Those thresholds are our judgment calls, not NASA's or the model's (`src/lib/cov
 | Screen | Status | Reads |
 |---|---|---|
 | Strategy planner (NSGA fronts, live prices) | built | `public/data/grid.json`, `meta.json` |
-| Rotation economics | planned | |
-| Reality check (WOFOST vs SIAP) | planned | |
-| Weather / drought what-ifs | planned | |
+| Rotation economics | data exported, screen planned | `scenarios.json` (priced live by `src/lib/economics.ts`) |
+| Reality check (WOFOST vs SIAP) | data exported, screen planned | `reality.json` |
+| Weather / drought what-ifs | data exported, screen planned | `scenarios.json` (seasons and maize risk) |
 
 **Strategy planner.** Pick a crop model (calibrated to SIAP, or standard WOFOST), say how much each objective matters, and the app shows the trade-off curve of rotation, fertilizer and stover decisions and suggests a compromise. Click a point (or a table row) to see its plan.
 
@@ -42,15 +42,25 @@ Those thresholds are our judgment calls, not NASA's or the model's (`src/lib/cov
 - `grid.json` holds the WOFOST season outcomes the planner scores from (design years 2006–2021, every rotation at each fertilizer scale, both parameter sets). `src/lib/planner.ts` is a port of `nsga_planner.Grid` / `Planner` / `brute_force`.
 - `src/lib/front.ts` ports `pareto_front` and `choose`. A weight of 0 narrows the five-objective front to the other objectives (exact, up to ties; tested against re-scoring the whole lattice).
 - Tests check the port against the Python: the live front must equal the front `nsga_planner.py` saved (`src/lib/fixtures/reference_fronts.json`, written by the exporter) strategy by strategy, the four compromises of [`NSGA_RESULTS.md`](../src/crop_models/NSGA_RESULTS.md) must come out, and so must its picks when the faba bean and stover prices change.
+- The bad-year share and the tie decimals come from `meta.json` (`planner`), written from `nsga_planner.py`, so the two never drift apart.
 - Prices, production costs, the nitrogen price and the stover price are the planner's placeholders (only grain prices are sourced), and the two crop models disagree about fertilizer; the app says so on every screen.
+
+**Data for the other tabs.** `scenarios.json` holds the ten WOFOST scenario suites of `rotation_experiments.py` (baseline, drier, canícula, colder nights, less or no fertilizer, fixed sowing) for both parameter sets, 2006–2025 after a spin-up year: each season's crop, yield, fertilizer and whether frost ended it, each year's May–October rain and dry/normal/wet class, and the paired-year maize risk of `rotation_risk.py`. `reality.json` holds SIAP's Texcoco series (yield per sown ha, lost share, price) and `farm_tool.farm_gap` per parameter set. Both load only when one of those tabs opens (`loadFarmData`). `src/lib/economics.ts` ports `farm_tool.rotation_economics` and is tested against it (`src/lib/fixtures/reference_economics.json`).
 
 ## Run it
 
-From the repo root, once (needs `data/nsga/` from the planner; the exported JSON is committed, so you can skip this unless the grid or the fronts change; it refuses fronts that were not computed from the current `data/nsga/grid.csv`):
+The exported JSON is committed, so you only need this when the model results change. From the repo root (needs `pip install -r requirements.txt`; about 2 minutes for the planner, an hour for the twenty scenario runs):
 
 ```bash
+python -m src.crop_models.nsga_planner --build-grid --model calibrated --out-dir data/nsga/calibrated
+python -m src.crop_models.nsga_planner --model default --out-dir data/nsga/default
+python -m src.crop_models.rotation_experiments --out-dir data/rotations
+python -m src.crop_models.calibration --simulate --scenarios baseline rain80 rain60 canicula50 frost_minus2 \
+    no_fertilizer fixed_sowing half_fertilizer rain80_half_fertilizer canicula50_half_fertilizer
 python -m src.crop_models.dashboard_export
 ```
+
+The exporter refuses fronts that were not computed from the current `data/nsga/grid.csv` and scenario folders that lack any of the ten scenarios. It does not need PCSE.
 
 Then:
 
@@ -58,17 +68,17 @@ Then:
 cd dashboard
 npm install
 npm run dev      # http://localhost:5173
-npm test         # planner and front logic against the Python results, translation key parity
+npm test         # planner, front and economics logic against the Python results, translation key parity
 npm run build    # type-check and build to dist/ (relative paths: serve from any folder)
 ```
 
 ## Layout
 
 ```text
-public/data/        JSON from dashboard_export.py (meta.json, grid.json)
-src/lib/            types, JSON loading, planner scoring, Pareto front and compromise choice, number formats,
-                    distance, NASA climate, coverage verdict, saved pin
-src/lib/fixtures/   Python's saved fronts, for the port's tests only
+public/data/        JSON from dashboard_export.py (meta.json, grid.json, scenarios.json, reality.json)
+src/lib/            types, JSON loading, planner scoring, Pareto front and compromise choice, rotation economics,
+                    number formats, distance, NASA climate, coverage verdict, saved pin
+src/lib/fixtures/   Python's saved fronts and rotation economics, for the ports' tests only
 src/i18n/           en.ts is the source of truth for keys; es.ts must match (tested)
 src/components/     scatter chart (SVG), plan card, weights panel, front table
 src/screens/        the home page, the map step and one file per tab

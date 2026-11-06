@@ -7,6 +7,8 @@ import type { Economics, GridField, GridWorld } from './types.ts'
 import { GRID_FIELDS } from './types.ts'
 
 const YEARS = [2006, 2007, 2008, 2009, 2010]
+/** The planner's bad-year share (nsga_planner.CVAR_SHARE), as in tests/test_nsga_planner.py. */
+const CVAR = 0.25
 const ECONOMICS: Economics = {
   prices: { maize: 5000, fababean: 12000 },
   other_costs: { maize: 10000, fababean: 8000 },
@@ -40,7 +42,7 @@ function world(scales = [0, 1, 2], tweak?: (w: GridWorld) => void): GridWorld {
   return built
 }
 
-const planner = () => new Planner(world(), ECONOMICS)
+const planner = () => new Planner(world(), ECONOMICS, CVAR)
 
 describe('interpolation', () => {
   it('is exact at nodes, linear between them and clipped to the grid', () => {
@@ -53,8 +55,8 @@ describe('interpolation', () => {
   })
 
   it('needs the zero-fertilizer node and complete tables', () => {
-    expect(() => new Planner(world([1, 2]), ECONOMICS)).toThrow(/zero-fertilizer/)
-    expect(() => new Planner(world([0, 1, 2], (w) => w.rotations.maize.fields.n_uptake_kg_ha.pop()), ECONOMICS)).toThrow(/Incomplete/)
+    expect(() => new Planner(world([1, 2]), ECONOMICS, CVAR)).toThrow(/zero-fertilizer/)
+    expect(() => new Planner(world([0, 1, 2], (w) => w.rotations.maize.fields.n_uptake_kg_ha.pop()), ECONOMICS, CVAR)).toThrow(/Incomplete/)
   })
 })
 
@@ -93,7 +95,7 @@ describe('objectives', () => {
     const generous = new Planner(world([0, 1, 2], (w) => {
       const uptake = w.rotations.maize.fields.n_uptake_kg_ha
       for (let i = 0; i < uptake.length; i++) uptake[i] += (Math.floor(i / YEARS.length) % 3) * 500
-    }), ECONOMICS)
+    }), ECONOMICS, CVAR)
     expect(generous.objectives('maize', 1, 0).n_loss_kg_ha).toBe(0)
   })
 
@@ -102,7 +104,7 @@ describe('objectives', () => {
     expect(() => p.objectives('maize', 1, 1.2)).toThrow(/retention/)
     expect(() => p.objectives('maize', 1, -0.1)).toThrow(/retention/)
     expect(() => p.objectives('wheat', 1, 0)).toThrow(/Unknown rotation/)
-    expect(() => new Planner(world(), { ...ECONOMICS, prices: { maize: 5000 } })).toThrow(/Missing price or cost for fababean/)
+    expect(() => new Planner(world(), { ...ECONOMICS, prices: { maize: 5000 } }, CVAR)).toThrow(/Missing price or cost for fababean/)
   })
 })
 

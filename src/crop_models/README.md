@@ -51,7 +51,7 @@ All four rotations over 21 seasons at three production levels take ~2 minutes. T
 - **Frost**: the crop ends on the first night with POWER minimum temperature (+ `--frost-tmin-offset`) at or below 0 °C, from 30 days after sowing.
 - **Drought**: per-season rain, July-August (canícula) rain, longest dry spell and water-stress days; dry/normal/wet year classes (terciles of May-October rain); and drier scenarios with `--rain-factor` / `--rain-months`.
 
-Crops and rotations are defined at the top of the script:
+Crops, rotations and the site are defined in `farm_setup.py` (plain data, no PCSE import, shared with the NSGA planner and the dashboard export):
 
 | Crop | WOFOST variety | Earliest sowing | Fertilizer (kg N/ha) |
 |---|---|---|---|
@@ -59,7 +59,7 @@ Crops and rotations are defined at the top of the script:
 | barley | `Spring_barley_301` | July 1 | 60 |
 | faba bean | `Faba_bean_801` | June 15 | 40 |
 
-To add a crop, add it to `CROPS` (any crop/variety PCSE lists). To add a rotation, add a list of crop keys to `ROTATIONS`. WOFOST's wheats are winter wheats that need cold to develop, so they don't work sown in summer.
+To add a crop, add it to `CROPS` in `farm_setup.py` (any crop/variety PCSE lists). To add a rotation, add a list of crop keys to `ROTATIONS`. WOFOST's wheats are winter wheats that need cold to develop, so they don't work sown in summer.
 
 ## Output
 

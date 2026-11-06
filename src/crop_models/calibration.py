@@ -39,6 +39,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .farm_setup import DEFAULT_LAT, DEFAULT_LON
 from .farm_tool import siap_texcoco, simulated_like_siap
 from .rotation_experiments import SCENARIOS, TARGET
 
@@ -257,7 +258,7 @@ def variety_parameters():
 class Runner:
     """Runs many calibrations in parallel, sharing the site's soil (read once)."""
 
-    def __init__(self, lat=19.53, lon=-98.85, start_year=2005, end_year=2025, workers=None):
+    def __init__(self, lat=DEFAULT_LAT, lon=DEFAULT_LON, start_year=2005, end_year=2025, workers=None):
         from .wofost_rotations import site_soil
 
         soil, total_n = site_soil(lat, lon)
@@ -425,7 +426,7 @@ def station_check(runner, variety, tsum_scales=(1.0, 0.8), photosynthesis_scales
     return pd.DataFrame(rows)
 
 
-def run_metadata(lat=19.53, lon=-98.85):
+def run_metadata(lat=DEFAULT_LAT, lon=DEFAULT_LON):
     """Versions, git commit and the date of the NASA POWER weather used, so saved runs can be traced.
 
     PCSE refreshes its POWER cache after 90 days, so runs made after that use re-downloaded weather.
@@ -447,7 +448,7 @@ def run_metadata(lat=19.53, lon=-98.85):
                                      if cache.exists() else None)}
 
 
-def simulate_scenarios(knobs, scenarios=("baseline",), out_dir=OUT_DIR, lat=19.53, lon=-98.85,
+def simulate_scenarios(knobs, scenarios=("baseline",), out_dir=OUT_DIR, lat=DEFAULT_LAT, lon=DEFAULT_LON,
                        start_year=2005, end_year=2025):
     """Calibrated runs of registered scenarios (all levels, all rotations) saved to `out_dir`.
 

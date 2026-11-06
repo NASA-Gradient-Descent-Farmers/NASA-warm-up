@@ -6,9 +6,6 @@ import type { ObjectiveKey, Strategy } from './types.ts'
 export type Maximize = Record<ObjectiveKey, boolean>
 export type Weights = Partial<Record<ObjectiveKey, number>>
 
-/** Objectives closer than this many decimals are ties (nsga_planner.FRONT_DECIMALS). */
-export const FRONT_DECIMALS = 9
-
 const roundTo = (value: number, decimals: number) => {
   const factor = 10 ** decimals
   return Math.round(value * factor) / factor
@@ -33,13 +30,14 @@ function dominates(a: number[], b: number[]): boolean {
 
 /**
  * Strategies not dominated by another one on `keys`, in their original order. Objectives are compared after
- * rounding and a strategy that repeats an earlier one on every objective is dropped, like the Python version.
+ * rounding to `decimals` (meta.planner.front_decimals) and a strategy that repeats an earlier one on every
+ * objective is dropped, like the Python version.
  */
 export function paretoFront(
   strategies: Strategy[],
   keys: ObjectiveKey[],
   maximize: Maximize,
-  decimals = FRONT_DECIMALS,
+  decimals: number,
 ): Strategy[] {
   const seen = new Set<string>()
   const unique: { strategy: Strategy; point: number[] }[] = []

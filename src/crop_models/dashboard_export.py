@@ -5,8 +5,9 @@ without Python, PCSE or NASA access. Nothing here re-runs a model; it reshapes f
 data/ and records where they came from.
 
 Files written to --out-dir (default dashboard/public/data):
-- meta.json: site, crops and fertilizer doses, rotations, objectives, decision weights, the planner's economics
-             (which figures are placeholders) and the latest SIAP prices, design/holdout years, provenance.
+- meta.json: site, crops and fertilizer doses, rotations, objectives, decision weights, the planner's settings
+             (lattice, bad-year share, tie decimals), its economics (which figures are placeholders) and the
+             latest SIAP prices, design/holdout years, provenance.
 - grid.json: the WOFOST season outcomes the NSGA planner scores strategies from (nsga_planner.Grid, design years,
              every rotation at each fertilizer scale), one table per parameter set. The browser re-prices
              and re-scores strategies from it, so prices and costs can be edited live.
@@ -27,9 +28,10 @@ from pathlib import Path
 import pandas as pd
 
 from .calibration import CALIBRATION_YEARS
+from .farm_setup import CROPS, ROTATIONS, SITE, fertilizer_kg_ha
 from .farm_tool import default_prices, siap_texcoco
-from .nsga_planner import (FIELDS, FRONT_DECIMALS, GRID_CSV, N_SCALE_STEPS, OBJECTIVES, PROFIT_FIRST, RETENTION_STEPS,
-                           SUSTAINABILITY_FIRST, Grid)
+from .nsga_planner import (CVAR_SHARE, FIELDS, FRONT_DECIMALS, GRID_CSV, N_SCALE_STEPS, OBJECTIVES, PROFIT_FIRST,
+                           RETENTION_STEPS, SUSTAINABILITY_FIRST, Grid)
 
 NSGA_DIR = Path("data/nsga")
 OUT_DIR = Path("dashboard/public/data")
@@ -43,11 +45,8 @@ PLACEHOLDERS = ["other_costs", "n_price", "stover_price"]
 
 
 def crop_plan():
-    """({crop: kg N/ha at fertilizer scale 1}, {rotation: [crops]}) from wofost_rotations (imports PCSE)."""
-    from .wofost_rotations import CROPS, ROTATIONS
-
-    return ({key: sum(kg for _, kg in crop["fertilizer"]) for key, crop in CROPS.items()},
-            {key: list(crops) for key, crops in ROTATIONS.items()})
+    """({crop: kg N/ha at fertilizer scale 1}, {rotation: [crops]}) from farm_setup (no PCSE needed)."""
+    return ({key: fertilizer_kg_ha(key) for key in CROPS}, {key: list(crops) for key, crops in ROTATIONS.items()})
 
 
 def load_front(directory):
@@ -117,7 +116,7 @@ def build_payloads(worlds=WORLDS, grid_csv=GRID_CSV, crop_plan_fn=crop_plan, sia
         if [int(years[0]), int(years[-1])] != run["design_years"]:
             raise ValueError(f"World {name!r}: grid years differ from the run's design years")
     meta = {
-        "site": {"name": "El Batán, Texcoco", "latitude": 19.53, "longitude": -98.85, "elevation_m": 2250},
+        "site": dict(SITE),
         "crops": {key: {"n_kg_ha_at_scale_1": kg} for key, kg in doses.items()},
         "rotations": rotations,
         "rotation_order": list(rotations),
@@ -125,6 +124,8 @@ def build_payloads(worlds=WORLDS, grid_csv=GRID_CSV, crop_plan_fn=crop_plan, sia
         "weights": {"sustainability_first": SUSTAINABILITY_FIRST, "profit_first": PROFIT_FIRST},
         "lattice": {"n_scale_max": float(next(iter(grids.values())).scales[-1]), "n_scale_steps": N_SCALE_STEPS,
                     "retention_steps": RETENTION_STEPS},
+        # Read by the browser's port of the planner, so its scoring and tie rule follow nsga_planner.
+        "planner": {"cvar_share": CVAR_SHARE, "front_decimals": FRONT_DECIMALS},
         "economics": first["economics"],
         "siap_prices": siap_prices(siap_fn()),
         "placeholders": PLACEHOLDERS,

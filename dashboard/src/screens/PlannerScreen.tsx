@@ -39,8 +39,9 @@ export function PlannerScreen({ data }: { data: DashboardData }) {
   const keyList = (mattering.length > 0 ? mattering : OBJECTIVES).join(',')
   const keys = useMemo(() => keyList.split(',') as ObjectiveKey[], [keyList])
 
-  const exact = useMemo(() => exactFront(grids[world], scored, meta.lattice, maximize), [grids, world, scored, meta, maximize])
-  const front = useMemo(() => frontOn(exact, keys, maximize), [exact, keys, maximize])
+  const decimals = meta.planner.front_decimals
+  const exact = useMemo(() => exactFront(grids[world], scored, meta, maximize), [grids, world, scored, meta, maximize])
+  const front = useMemo(() => frontOn(exact, keys, maximize, decimals), [exact, keys, maximize, decimals])
   const suggested = front[choose(front, weights, maximize)]
   const picked = pickedId === null ? undefined : front.find((s) => s.id === pickedId)
   const shown = picked ?? suggested
@@ -48,10 +49,10 @@ export function PlannerScreen({ data }: { data: DashboardData }) {
   // What the same weights would have suggested at the original prices, to show what the new figures changed.
   const baseline = useMemo(() => {
     if (!edited) return null
-    const original = frontOn(exactFront(grids[world], meta.economics, meta.lattice, maximize), keys, maximize)
+    const original = frontOn(exactFront(grids[world], meta.economics, meta, maximize), keys, maximize, decimals)
     const before = original[choose(original, weights, maximize)]
     return sameStrategy(before, suggested) ? null : before
-  }, [edited, grids, world, meta, maximize, keys, weights, suggested])
+  }, [edited, grids, world, meta, maximize, keys, weights, suggested, decimals])
 
   const changeWeights = (next: WeightSet) => {
     setWeights(next)
